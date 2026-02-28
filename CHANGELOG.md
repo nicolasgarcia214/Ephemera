@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.2](https://github.com/nicolasgarcia214/Ephemera/compare/v0.1.1...v0.1.2) (2026-02-28)
+
+
+### Bug Fixes
+
+* **markdown:** 🐛 restore inline code after protected blocks ([d726cc8](https://github.com/nicolasgarcia214/Ephemera/commit/d726cc80a8cb73ced8ab367d3f6ccba433635c0b))
+* **readme:** 🐛 use query param badge URL to prevent 404 after version bump ([05718bf](https://github.com/nicolasgarcia214/Ephemera/commit/05718bfe7c4ebfe4398fd222815202272dbbef7c))
+
 ## [0.1.1](https://github.com/nicolasgarcia214/Ephemera/compare/v0.1.0...v0.1.1) (2026-02-27)
 
 

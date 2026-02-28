@@ -4,7 +4,7 @@
 ![DMS Plugin](https://img.shields.io/badge/DMS-Plugin-blueviolet)
 ![Wayland](https://img.shields.io/badge/Wayland-only-yellow)
 ![Platform: Linux](https://img.shields.io/badge/Platform-Linux-lightgrey)
-![Version](https://img.shields.io/static/v1?label=version&message=0.1.1&color=green) <!-- x-release-please-version -->
+![Version](https://img.shields.io/static/v1?label=version&message=0.1.2&color=green) <!-- x-release-please-version -->
 
 AI chat for your desktop — ask quick questions, keep nothing (or everything).
 
