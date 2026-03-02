@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/nicolasgarcia214/Ephemera/compare/v0.1.2...v0.1.3) (2026-03-02)
+
+
+### Features
+
+* **core:** ✨ add unlimited tokens mode and improve chat UX ([e14112a](https://github.com/nicolasgarcia214/Ephemera/commit/e14112af63d8ac4123ac7d4094b524a9bd13bb46))
+
 ## [0.1.2](https://github.com/nicolasgarcia214/Ephemera/compare/v0.1.1...v0.1.2) (2026-02-28)
 
 
