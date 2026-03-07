@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.1.4](https://github.com/nicolasgarcia214/Ephemera/compare/v0.1.3...v0.1.4) (2026-03-07)
+
+
+### Features
+
+* **ui:** ✨ add streaming stats, model selector polish, and ollama boot banner ([e5f75af](https://github.com/nicolasgarcia214/Ephemera/commit/e5f75af0f2e06a6cd836942ed415ae37aa8a8040))
+
+
+### Bug Fixes
+
+* **core:** 🐛 resolve critical bugs and expand test coverage ([670b81a](https://github.com/nicolasgarcia214/Ephemera/commit/670b81a1d6d36a16d1f30c8226ffec4b83060220))
+* **settings:** 🐛 fix custom system prompt not syncing to service ([bafe2b0](https://github.com/nicolasgarcia214/Ephemera/commit/bafe2b0b35d91222f3a3ed15c5cda6c45fa76675))
+
+
+### Refactoring
+
+* **core:** ♻️ decompose settings, extract JS modules, fix bugs, add chat features ([bad75c0](https://github.com/nicolasgarcia214/Ephemera/commit/bad75c0216fae41717e3374ef39d03a35ef2359b))
+
 ## [0.1.3](https://github.com/nicolasgarcia214/Ephemera/compare/v0.1.2...v0.1.3) (2026-03-02)
 
 
