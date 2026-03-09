@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.1.5](https://github.com/nicolasgarcia214/Ephemera/compare/v0.1.4...v0.1.5) (2026-03-09)
+
+
+### Features
+
+* **security:** 🔒 add system keyring integration and harden curl requests ([85fd6a5](https://github.com/nicolasgarcia214/Ephemera/commit/85fd6a553d784ef0bc4760a3864035880a07c592))
+* **streaming:** ✨ add API-reported token counts for accurate tok/s stats ([3880c59](https://github.com/nicolasgarcia214/Ephemera/commit/3880c59980826139bc21b5233839bc72608bc9f5))
+* **ui:** ✨ add hardcoded model lists for provider dropdowns ([024e2e6](https://github.com/nicolasgarcia214/Ephemera/commit/024e2e6ac82e72ae097bec368e7c8ee2e17511cb))
+
+
+### Refactoring
+
+* **core:** ♻️ decompose monoliths into coordinator pattern with child services ([bc3122d](https://github.com/nicolasgarcia214/Ephemera/commit/bc3122dd8ea93055be96f4ecb13d9e3219a0346c))
+
 ## [0.1.4](https://github.com/nicolasgarcia214/Ephemera/compare/v0.1.3...v0.1.4) (2026-03-07)
 
 
