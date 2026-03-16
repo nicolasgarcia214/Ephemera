@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/nicolasgarcia214/Ephemera/compare/v1.0.0...v1.0.1) (2026-03-16)
+
+
+### Bug Fixes
+
+* **keyring:** 🐛 use onStreamFinished for keyring lookup output ([f998731](https://github.com/nicolasgarcia214/Ephemera/commit/f998731e8387716494d1fd3d2e154bab5f9bd3bd))
+
 ## [1.0.0](https://github.com/nicolasgarcia214/Ephemera/compare/v0.1.5...v1.0.0) (2026-03-10)
 
 
