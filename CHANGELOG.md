@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/nicolasgarcia214/Ephemera/compare/v1.0.1...v1.1.0) (2026-05-01)
+
+
+### Features
+
+* **ollama:** ✨ add configurable thinking mode for Ollama provider ([17c1661](https://github.com/nicolasgarcia214/Ephemera/commit/17c166148bae165ea941a40e26ae4d31b2ddcdd3))
+
 ## [1.0.1](https://github.com/nicolasgarcia214/Ephemera/compare/v1.0.0...v1.0.1) (2026-03-16)
 
 
