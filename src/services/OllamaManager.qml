@@ -7,6 +7,7 @@ Item {
     id: root
 
     property string ollamaUrl: "http://localhost:11434"
+    property bool active: true
     property bool isStreaming: false
 
     // --- Ollama state (exposed to parent) ---
@@ -18,6 +19,18 @@ Item {
     property int ollamaRetries: 0
     readonly property int ollamaMaxRetries: 15
     property bool _shuttingDown: false
+    property bool _terminationPending: false
+    property bool _restartAfterExit: false
+    property bool _probePending: false
+    property bool _pingProcessActive: false
+    property bool _discoveryProcessActive: false
+    property bool _discoveryPending: false
+    property bool _gpuProcessActive: false
+    property string _pendingGpuModel: ""
+    property int _lifecycleGeneration: 0
+    property int _pingGeneration: -1
+    property int _discoveryGeneration: -1
+    property int _gpuGeneration: -1
     property int _ollamaPid: -1
     property int ollamaIdleMinutes: 5
     property string discoveryError: ""
@@ -28,36 +41,35 @@ Item {
     signal gpuStatusReady(string label)
 
     function ensureReady() {
+        if (!active)
+            return;
         _shuttingDown = false;
         ollamaIdleTimer.stop();
         retryTimer.stop();
         ollamaRetries = 0;
+        if (_terminationPending) {
+            _restartAfterExit = true;
+            return;
+        }
         ping();
     }
 
     function shutdown() {
         _shuttingDown = true;
-        ollamaIdleTimer.stop();
-        retryTimer.stop();
-        if (ollamaWeStarted) {
-            if (_ollamaPid > 0) {
-                // Kill by PID — precise, no collateral damage
-                ollamaKiller.command = ["kill", String(_ollamaPid)];
-                ollamaKiller.running = true;
-                _ollamaPid = -1;
-            }
-            if (ollamaProcess.running)
-                ollamaProcess.running = false;
-        }
-        ollamaWeStarted = false;
-        ollamaStartPending = false;
+        _restartAfterExit = false;
+        _invalidateProbes();
         ollamaReady = false;
+        ollamaExternallyManaged = false;
+        if (ollamaWeStarted || ollamaStartPending || ollamaProcess.running)
+            _requestOwnedStop(false);
+        else
+            _clearOwnership();
     }
 
     function forceShutdownExternal() {
         _shuttingDown = true;
-        ollamaIdleTimer.stop();
-        retryTimer.stop();
+        _restartAfterExit = false;
+        _invalidateProbes();
         // External Ollama: use pkill -x for exact process name match (not -f substring)
         // to avoid killing unrelated processes that merely contain "ollama" in their cmdline
         ollamaKiller.command = ["pkill", "-x", "-U", Quickshell.env("USER") || "", "ollama"];
@@ -69,7 +81,7 @@ Item {
     }
 
     function scheduleIdleShutdown() {
-        if (!ollamaWeStarted || ollamaIdleMinutes <= 0) return;
+        if (!active || !ollamaWeStarted || ollamaIdleMinutes <= 0) return;
         ollamaIdleTimer.restart();
     }
 
@@ -79,23 +91,46 @@ Item {
 
     function discoverModels() {
         discoveryError = "";
+        if (!active) return;
         if (!_isUrlSafe()) { discoveryError = "Invalid Ollama URL."; return; }
+        if (_discoveryProcessActive) {
+            if (_discoveryGeneration !== _lifecycleGeneration) {
+                _discoveryPending = true;
+                if (modelDiscovery.running)
+                    modelDiscovery.running = false;
+            }
+            return;
+        }
+        _discoveryPending = false;
+        _discoveryGeneration = _lifecycleGeneration;
         modelDiscovery.command = ["curl", "-s", "--connect-timeout", "2", ollamaUrl + "/api/tags"];
+        _discoveryProcessActive = true;
         modelDiscovery.running = true;
     }
 
     function queryGpuStatus(modelName) {
-        if (!ollamaReady || !modelName || !_isUrlSafe()) return;
+        if (!active || !ollamaReady || !modelName || !_isUrlSafe()) return;
+        if (_gpuProcessActive) {
+            _pendingGpuModel = modelName;
+            if (gpuQuery.running)
+                gpuQuery.running = false;
+            return;
+        }
+        _pendingGpuModel = "";
         _gpuQueryModel = modelName;
+        _gpuGeneration = _lifecycleGeneration;
         gpuQuery.command = ["curl", "-s", "--connect-timeout", "2", ollamaUrl + "/api/ps"];
+        _gpuProcessActive = true;
         gpuQuery.running = true;
     }
 
     property string _gpuQueryModel: ""
 
     function cleanupOnDestruction() {
-        if (ollamaWeStarted && !_shuttingDown) {
+        if (ollamaWeStarted || ollamaStartPending || ollamaProcess.running) {
             _shuttingDown = true;
+            _restartAfterExit = false;
+            _invalidateProbes();
             ollamaProcess.running = false;
             _kill();
         }
@@ -107,6 +142,72 @@ Item {
 
     // --- Internal ---
 
+    function _clearOwnership() {
+        _ollamaPid = -1;
+        ollamaWeStarted = false;
+        ollamaStartPending = false;
+        _terminationPending = false;
+    }
+
+    function _invalidateProbes() {
+        _lifecycleGeneration++;
+        _probePending = false;
+        _discoveryPending = false;
+        _pendingGpuModel = "";
+        ollamaIdleTimer.stop();
+        retryTimer.stop();
+        if (ollamaPing.running)
+            ollamaPing.running = false;
+        if (modelDiscovery.running)
+            modelDiscovery.running = false;
+        if (gpuQuery.running)
+            gpuQuery.running = false;
+    }
+
+    function _requestOwnedStop(restartAfterExit) {
+        _terminationPending = true;
+        _restartAfterExit = restartAfterExit === true && active;
+        if (ollamaProcess.running) {
+            // Process.running targets the exact child we launched. Ownership
+            // remains set until onExited confirms that child terminated.
+            ollamaProcess.running = false;
+            return;
+        }
+        if (ollamaWeStarted && _ollamaPid > 0)
+            return;
+
+        _clearOwnership();
+        if (_restartAfterExit && active) {
+            _restartAfterExit = false;
+            Qt.callLater(ensureReady);
+        }
+    }
+
+    function _finishOwnedProcessExit() {
+        if (!ollamaWeStarted && !ollamaStartPending && !_terminationPending)
+            return;
+        var restart = _restartAfterExit && active;
+        _clearOwnership();
+        _restartAfterExit = false;
+        ollamaReady = false;
+        ollamaExternallyManaged = false;
+        if (restart)
+            Qt.callLater(ensureReady);
+    }
+
+    function _deactivate() {
+        _shuttingDown = true;
+        _restartAfterExit = false;
+        _invalidateProbes();
+        ollamaRetries = 0;
+        ollamaReady = false;
+        ollamaExternallyManaged = false;
+        if (ollamaWeStarted || ollamaStartPending || ollamaProcess.running)
+            _requestOwnedStop(false);
+        else
+            _clearOwnership();
+    }
+
     function _kill() {
         if (_ollamaPid > 0) {
             ollamaKiller.command = ["kill", String(_ollamaPid)];
@@ -117,18 +218,32 @@ Item {
     }
 
     function ping() {
-        if (!_isUrlSafe()) return;
+        if (!active || _terminationPending || !_isUrlSafe()) return;
+        if (_pingProcessActive) {
+            if (_pingGeneration !== _lifecycleGeneration) {
+                _probePending = true;
+                if (ollamaPing.running)
+                    ollamaPing.running = false;
+            }
+            return;
+        }
+        _probePending = false;
+        _pingGeneration = _lifecycleGeneration;
         ollamaPing.command = ["curl", "-s", "--connect-timeout", "2", ollamaUrl + "/api/tags"];
+        _pingProcessActive = true;
         ollamaPing.running = true;
     }
 
     function _handlePingFailed() {
+        if (!active || _pingGeneration !== _lifecycleGeneration)
+            return;
         if (ollamaReady) {
             ollamaReady = false;
             ollamaExternallyManaged = false;
         }
 
-        if (!ollamaWeStarted && !ollamaStartPending && ollamaRetries === 0) {
+        if (!ollamaWeStarted && !ollamaStartPending && !_terminationPending
+                && ollamaRetries === 0) {
             ollamaStartPending = true;
             ollamaProcess.running = true;
         }
@@ -138,12 +253,25 @@ Item {
             retryTimer.start();
     }
 
+    onActiveChanged: {
+        if (active)
+            ensureReady();
+        else
+            _deactivate();
+    }
+
     onOllamaUrlChanged: {
-        if (ollamaReady) {
-            ollamaReady = false;
-            ollamaRetries = 0;
-            ollamaExternallyManaged = false;
-            ollamaWeStarted = false;
+        _invalidateProbes();
+        ollamaReady = false;
+        ollamaRetries = 0;
+        ollamaExternallyManaged = false;
+        if (!active)
+            return;
+        if (ollamaWeStarted || ollamaStartPending || ollamaProcess.running) {
+            _shuttingDown = true;
+            _requestOwnedStop(true);
+        } else {
+            _shuttingDown = false;
             ping();
         }
     }
@@ -159,13 +287,16 @@ Item {
                 root._ollamaPid = ollamaProcess.processId;
                 root.ollamaWeStarted = true;
                 root.ollamaStartPending = false;
-            } else if (!running && root.ollamaWeStarted && !root._shuttingDown) {
-                root._ollamaPid = -1;
-                root.ollamaWeStarted = false;
-                root.ollamaStartPending = false;
-                root.ollamaReady = false;
+                if (!root.active || root._terminationPending)
+                    Qt.callLater(function() { ollamaProcess.running = false; });
+            } else if (!running && !root._terminationPending
+                       && (root.ollamaWeStarted || root.ollamaStartPending)) {
+                // QProcess may omit exited when launch itself fails. Normal
+                // owned shutdowns are finalized only by onExited below.
+                Qt.callLater(root._finishOwnedProcessExit);
             }
         }
+        onExited: exitCode => root._finishOwnedProcessExit()
     }
 
     Process {
@@ -178,6 +309,9 @@ Item {
         running: false
         stdout: StdioCollector {
             onStreamFinished: {
+                if (!root.active
+                        || root._pingGeneration !== root._lifecycleGeneration)
+                    return;
                 try {
                     var data = JSON.parse(text);
                     if (data && data.models !== undefined) {
@@ -194,8 +328,13 @@ Item {
             }
         }
         onExited: exitCode => {
-            if (exitCode !== 0)
+            root._pingProcessActive = false;
+            var current = root.active
+                && root._pingGeneration === root._lifecycleGeneration;
+            if (exitCode !== 0 && current)
                 root._handlePingFailed();
+            if (root._probePending && root.active && !root._terminationPending)
+                Qt.callLater(root.ping);
         }
     }
 
@@ -204,6 +343,9 @@ Item {
         running: false
         stdout: StdioCollector {
             onStreamFinished: {
+                if (!root.active || root._discoveryGeneration
+                        !== root._lifecycleGeneration)
+                    return;
                 try {
                     var data = JSON.parse(text);
                     var models = data.models || [];
@@ -220,6 +362,13 @@ Item {
                 }
             }
         }
+        onExited: exitCode => {
+            root._discoveryProcessActive = false;
+            if (root._discoveryPending && root.active) {
+                root._discoveryPending = false;
+                Qt.callLater(root.discoverModels);
+            }
+        }
     }
 
     Process {
@@ -227,6 +376,9 @@ Item {
         running: false
         stdout: StdioCollector {
             onStreamFinished: {
+                if (!root.active
+                        || root._gpuGeneration !== root._lifecycleGeneration)
+                    return;
                 try {
                     var data = JSON.parse(text);
                     var models = data.models || [];
@@ -254,6 +406,14 @@ Item {
                 }
             }
         }
+        onExited: exitCode => {
+            root._gpuProcessActive = false;
+            if (root._pendingGpuModel && root.active) {
+                var pendingModel = root._pendingGpuModel;
+                root._pendingGpuModel = "";
+                Qt.callLater(function() { root.queryGpuStatus(pendingModel); });
+            }
+        }
     }
 
     // --- Timers ---
@@ -262,7 +422,10 @@ Item {
         id: retryTimer
         interval: 1000
         repeat: false
-        onTriggered: root.ping()
+        onTriggered: {
+            if (root.active)
+                root.ping();
+        }
     }
 
     Timer {
@@ -270,7 +433,7 @@ Item {
         interval: root.ollamaIdleMinutes * 60 * 1000
         repeat: false
         onTriggered: {
-            if (root.ollamaWeStarted && !root.isStreaming)
+            if (root.active && root.ollamaWeStarted && !root.isStreaming)
                 root.shutdown();
         }
     }
