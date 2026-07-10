@@ -32,6 +32,8 @@ Item {
     property real streamStartTime: 0
     property int streamTokenCount: 0
     property int _apiOutputTokens: 0
+    property bool _hasApiOutputTokens: false
+    property bool _awaitingUsageCompletion: false
     property bool _insideThinkTag: false
     property string _tagBuffer: ""
     property string _streamContent: ""
@@ -175,6 +177,7 @@ Item {
         _tagBuffer = "";
         _roundContent = "";
         _roundThinking = "";
+        _awaitingUsageCompletion = false;
         if (launch.messages)
             _conversationMessages = launch.messages;
         pendingStdinBody = launch.curlResult.body;
@@ -284,6 +287,8 @@ Item {
         streamStartTime = 0;
         streamTokenCount = 0;
         _apiOutputTokens = 0;
+        _hasApiOutputTokens = false;
+        _awaitingUsageCompletion = false;
         _streamContent = "";
         _streamThinking = "";
         _roundContent = "";
@@ -314,6 +319,8 @@ Item {
         _roundContent = "";
         _roundThinking = "";
         _apiOutputTokens = 0;
+        _hasApiOutputTokens = false;
+        _awaitingUsageCompletion = false;
         _streamVariantIndex = variantIndex;
         _completedFetchStreamId = "";
         _completedFetchProvider = "";
@@ -376,8 +383,17 @@ Item {
                 return;
             }
 
-            if (delta.outputTokens > 0)
+            if (delta.usageReceived) {
                 _apiOutputTokens = delta.outputTokens;
+                _hasApiOutputTokens = true;
+                if (_awaitingUsageCompletion) {
+                    _awaitingUsageCompletion = false;
+                    if (_pendingToolCalls.length === 0) {
+                        _finalizeStream(activeStreamId);
+                        return;
+                    }
+                }
+            }
 
             if (delta.toolCalls && delta.toolCalls.length > 0) {
                 if (_allToolCalls.length + delta.toolCalls.length > _maxToolCallsPerRound) {
@@ -410,8 +426,12 @@ Item {
                 }
             }
             if (delta.done) {
-                if (_pendingToolCalls.length === 0)
-                    _finalizeStream(activeStreamId);
+                if (_pendingToolCalls.length === 0) {
+                    if (delta.openAiCompatible && !delta.usageReceived)
+                        _awaitingUsageCompletion = true;
+                    else
+                        _finalizeStream(activeStreamId);
+                }
             }
         }
     }
@@ -735,6 +755,7 @@ Item {
         _completedFetchProvider = _activeProvider;
         _completedFetchGeneration = _streamGeneration;
         _pendingLaunch = null;
+        _awaitingUsageCompletion = false;
         isStreaming = false;
         activeStreamId = "";
         _cooldownUntil = 0;
@@ -748,6 +769,7 @@ Item {
             return false;
         _streamContent = message;
         _pendingLaunch = null;
+        _awaitingUsageCompletion = false;
         _clearToolState(true, message);
         isStreaming = false;
         activeStreamId = "";
@@ -764,10 +786,10 @@ Item {
         var elapsed = (Date.now() - streamStartTime) / 1000;
         var label = elapsed.toFixed(1) + "s";
         // Prefer API-reported token count (accurate); fall back to delta count (approximate)
-        var tokens = _apiOutputTokens > 0 ? _apiOutputTokens : streamTokenCount;
+        var tokens = _hasApiOutputTokens ? _apiOutputTokens : streamTokenCount;
         if (tokens > 0 && elapsed > 0.5) {
             var tps = tokens / elapsed;
-            var prefix = _apiOutputTokens > 0 ? "" : "~";
+            var prefix = _hasApiOutputTokens ? "" : "~";
             label += " · " + prefix + tps.toFixed(1) + " tok/s";
         }
         return label;

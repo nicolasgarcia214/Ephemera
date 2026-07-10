@@ -133,6 +133,8 @@ section("StreamParser.parseDelta — OpenAI/Ollama");
     });
     r = StreamParser.parseDelta(json, "openai");
     assertEqual(r.done, true, "done when finish_reason is set");
+    assertEqual(r.openAiCompatible, true, "marks OpenAI finish chunks as compatibility events");
+    assertEqual(r.usageReceived, false, "finish chunk does not imply usage receipt");
 
     json = JSON.stringify({
         choices: [{ delta: { reasoning_content: "let me think..." } }]
@@ -331,7 +333,28 @@ section("StreamParser.parseDelta — provider errors and refusals");
 
 section("StreamParser.parseDelta — outputTokens");
 (function() {
-    // OpenAI: usage.completion_tokens in final chunk
+    // OpenAI Chat Completions: finish_reason precedes a usage-only chunk.
+    var finish = StreamParser.parseDelta(JSON.stringify({
+        choices: [{ delta: {}, finish_reason: "stop" }]
+    }), "openai");
+    var usage = StreamParser.parseDelta(JSON.stringify({
+        choices: [],
+        usage: { prompt_tokens: 50, completion_tokens: 120, total_tokens: 170 }
+    }), "openai");
+    assertEqual(finish.done, true, "finish_reason signals model completion");
+    assertEqual(finish.usageReceived, false, "finish_reason arrives before usage");
+    assertEqual(usage.done, false, "usage-only chunk has no finish_reason");
+    assertEqual(usage.openAiCompatible, true, "usage-only chunk retains compatibility identity");
+    assertEqual(usage.usageReceived, true, "recognizes the later usage-only chunk");
+    assertEqual(usage.outputTokens, 120, "extracts usage after finish_reason");
+
+    usage = StreamParser.parseDelta(JSON.stringify({
+        choices: [], usage: { completion_tokens: 0 }
+    }), "openai");
+    assertEqual(usage.usageReceived, true, "zero-token usage still completes accounting");
+    assertEqual(usage.outputTokens, 0, "preserves zero completion tokens");
+
+    // OpenAI-compatible providers may also include usage with finish_reason.
     var json = JSON.stringify({
         choices: [{ delta: {}, finish_reason: "stop" }],
         usage: { prompt_tokens: 50, completion_tokens: 120, total_tokens: 170 }
@@ -339,6 +362,7 @@ section("StreamParser.parseDelta — outputTokens");
     var r = StreamParser.parseDelta(json, "openai");
     assertEqual(r.outputTokens, 120, "extracts OpenAI completion_tokens");
     assertEqual(r.done, true, "done alongside usage");
+    assertEqual(r.usageReceived, true, "recognizes usage alongside finish_reason");
 
     // OpenAI: no usage in normal delta
     json = JSON.stringify({
@@ -354,6 +378,8 @@ section("StreamParser.parseDelta — outputTokens");
     });
     r = StreamParser.parseDelta(json, "ollama");
     assertEqual(r.outputTokens, 85, "extracts Ollama OpenAI-compatible completion_tokens");
+    assertEqual(r.openAiCompatible, true, "marks Ollama compatibility response shape");
+    assertEqual(r.usageReceived, true, "recognizes Ollama compatibility usage");
 
     // Ollama native: eval_count in final chunk
     json = JSON.stringify({
@@ -364,6 +390,7 @@ section("StreamParser.parseDelta — outputTokens");
     });
     r = StreamParser.parseDelta(json, "ollama");
     assertEqual(r.outputTokens, 85, "extracts Ollama eval_count");
+    assertEqual(r.openAiCompatible, false, "native Ollama response is not compatibility-shaped");
 
     // Anthropic: usage.output_tokens on message_delta
     json = JSON.stringify({
@@ -860,6 +887,7 @@ section("Providers.buildCurlCommand");
     var body = parseCurlConfigBody(r.body);
     assertEqual(body.model, "llama3", "body contains model");
     assertEqual(body.stream, true, "body has stream: true");
+    assertEqual(body.stream_options.include_usage, true, "Ollama compatibility request asks for usage");
     assertEqual(body.reasoning_effort, undefined, "default Ollama thinking omits reasoning_effort");
     assert(r.body.indexOf('url = "http://localhost:11434/v1/chat/completions"') >= 0, "Ollama chat defaults to OpenAI-compatible endpoint");
 
@@ -878,6 +906,7 @@ section("Providers.buildCurlCommand");
     r = Providers.buildCurlCommand("ollama", payload, "");
     body = parseCurlConfigBody(r.body);
     assert(r.body.indexOf('url = "http://localhost:11434/api/chat"') >= 0, "Ollama tools use native chat endpoint");
+    assertEqual(body.stream_options, undefined, "Ollama native chat omits OpenAI stream options");
     assertEqual(body.max_tokens, undefined, "Ollama native chat does not use OpenAI max_tokens");
     assertEqual(body.temperature, undefined, "Ollama native chat does not use top-level temperature");
     assertEqual(body.options.num_predict, 4096, "Ollama native chat maps max_tokens to num_predict");

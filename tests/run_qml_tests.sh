@@ -28,6 +28,7 @@ mkdir -p "$CONFIG_DIR/src/services" "$CONFIG_DIR/src/lib" \
 cp "$ROOT/tests/McpServiceHarness.qml" "$CONFIG_DIR/McpServiceHarness.qml"
 cp "$ROOT/tests/McpApprovalHarness.qml" "$CONFIG_DIR/McpApprovalHarness.qml"
 cp "$ROOT/tests/StreamingErrorHarness.qml" "$CONFIG_DIR/StreamingErrorHarness.qml"
+cp "$ROOT/tests/StreamingUsageHarness.qml" "$CONFIG_DIR/StreamingUsageHarness.qml"
 cp "$ROOT/tests/ProviderIsolationHarness.qml" "$CONFIG_DIR/ProviderIsolationHarness.qml"
 cp "$ROOT/tests/CoordinatorHarness.qml" "$CONFIG_DIR/CoordinatorHarness.qml"
 cp "$ROOT/tests/fixtures/qml/Common/"* "$CONFIG_DIR/Common/"
@@ -194,5 +195,6 @@ run_harness() {
 run_harness McpServiceHarness EPHEMERA_MCP_QML_TEST
 run_harness McpApprovalHarness EPHEMERA_MCP_APPROVAL_TEST
 run_harness StreamingErrorHarness EPHEMERA_STREAM_ERROR_TEST
+run_harness StreamingUsageHarness EPHEMERA_STREAM_USAGE_TEST
 run_harness ProviderIsolationHarness EPHEMERA_PROVIDER_ISOLATION_TEST
 run_harness CoordinatorHarness EPHEMERA_COORDINATOR_TEST
