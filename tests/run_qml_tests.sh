@@ -29,6 +29,7 @@ cp "$ROOT/tests/McpServiceHarness.qml" "$CONFIG_DIR/McpServiceHarness.qml"
 cp "$ROOT/tests/McpApprovalHarness.qml" "$CONFIG_DIR/McpApprovalHarness.qml"
 cp "$ROOT/tests/ProviderIsolationHarness.qml" "$CONFIG_DIR/ProviderIsolationHarness.qml"
 cp "$ROOT/tests/CoordinatorHarness.qml" "$CONFIG_DIR/CoordinatorHarness.qml"
+cp "$ROOT/tests/KeyringHarness.qml" "$CONFIG_DIR/KeyringHarness.qml"
 cp "$ROOT/tests/fixtures/qml/Common/"* "$CONFIG_DIR/Common/"
 cp "$ROOT/tests/fixtures/qml/Services/"* "$CONFIG_DIR/Services/"
 cp "$ROOT/src/services/EphemeraService.qml" "$CONFIG_DIR/src/services/EphemeraService.qml"
@@ -153,6 +154,7 @@ fi
 run_harness() {
     harness=$1
     marker=$2
+    keyring_test=${3:-0}
     harness_runtime="$RUNTIME_DIR/$harness"
     mkdir -p "$harness_runtime"
     chmod 700 "$harness_runtime"
@@ -160,6 +162,7 @@ run_harness() {
     output=$(PATH="$ROOT/tests/fixtures/bin:$PATH" \
         EPHEMERA_TEST_NODE="$TEST_NODE" \
         EPHEMERA_TEST_RUNTIME_OVERRIDE="$TEST_RUNTIME_OVERRIDE" \
+        EPHEMERA_KEYRING_TEST="$keyring_test" \
         NODE_OPTIONS="--require=/ephemera-must-clear.cjs" \
         NODE_PATH="/ephemera-must-clear" \
         NODE_TLS_REJECT_UNAUTHORIZED=0 \
@@ -194,3 +197,4 @@ run_harness McpServiceHarness EPHEMERA_MCP_QML_TEST
 run_harness McpApprovalHarness EPHEMERA_MCP_APPROVAL_TEST
 run_harness ProviderIsolationHarness EPHEMERA_PROVIDER_ISOLATION_TEST
 run_harness CoordinatorHarness EPHEMERA_COORDINATOR_TEST
+run_harness KeyringHarness EPHEMERA_KEYRING_TEST 1
