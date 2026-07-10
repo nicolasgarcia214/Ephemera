@@ -729,6 +729,11 @@ Item {
 
         var payload = _buildPayload(lastUserText);
         var result = _buildCurlCommand(payload);
+        if (result && result.error) {
+            streamingService.failActiveStream(result.error, context.streamId,
+                                              context.provider, context.generation);
+            return;
+        }
         if (!result) {
             var errorMessage;
             if (provider === "ollama") {
@@ -804,8 +809,10 @@ Item {
         var payload = _buildPayload(lastUserText);
         payload.messages = messages;
         var result = _buildCurlCommand(payload);
-        if (!result) {
-            streamingService.failActiveStream("Could not resume after MCP tool call.",
+        if (!result || result.error) {
+            streamingService.failActiveStream(result && result.error
+                                                  ? result.error
+                                                  : "Could not resume after MCP tool call.",
                                               streamId, streamProvider, streamGeneration);
             return false;
         }
