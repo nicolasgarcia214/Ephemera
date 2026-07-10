@@ -9,9 +9,6 @@ import "./src/components"
 Item {
     id: root
 
-    property var pluginService: null
-    property string pluginId: "ephemera"
-
     function toggle() {
         if (variants.instances.length > 0) {
             variants.instances[0].toggle();
