@@ -10,8 +10,8 @@
  * Validate a URL for use as a provider base URL.
  *
  * Enforces: http(s) scheme only, valid hostname, max 2048 chars, no control
- * characters or characters unsafe in URLs (angle brackets, quotes, backticks,
- * curly braces, pipes, backslashes, spaces).
+ * characters, default-ignorable formatting code points, or characters unsafe in URLs
+ * (angle brackets, quotes, backticks, curly braces, pipes, backslashes, spaces).
  *
  * @param {string} url - URL to validate.
  * @returns {{ valid: boolean, error: string }} error is empty when valid or when URL is absent.
@@ -26,9 +26,54 @@ function validateUrl(url) {
     if (!/^https?:\/\/[a-zA-Z0-9]/.test(u))
         return { valid: false, error: "Invalid hostname in URL." };
     // Reject control characters and characters unsafe in URLs (prevents injection via path)
-    if (/[\x00-\x20\x7f<>"'{}|\\^`]/.test(u))
+    if (/[\x00-\x20\x7f-\x9f<>"'{}|\\^`]/.test(u))
         return { valid: false, error: "URL contains invalid characters." };
+    if (_containsUnsafeUnicodeFormatting(u))
+        return { valid: false, error: "URL contains invisible or directional control characters." };
     return { valid: true, error: "" };
+}
+
+// Unicode 17 Default_Ignorable_Code_Point ranges, plus line separators,
+// interlinear annotation controls, and unpaired surrogates that can change
+// when a JavaScript string is encoded for process argv.
+function _isUnsafeFormattingCodePoint(codePoint) {
+    return codePoint === 0x00ad || codePoint === 0x034f || codePoint === 0x061c
+        || (codePoint >= 0x115f && codePoint <= 0x1160)
+        || (codePoint >= 0x17b4 && codePoint <= 0x17b5)
+        || (codePoint >= 0x180b && codePoint <= 0x180f)
+        || (codePoint >= 0x200b && codePoint <= 0x200f)
+        || (codePoint >= 0x2028 && codePoint <= 0x202e)
+        || (codePoint >= 0x2060 && codePoint <= 0x206f)
+        || codePoint === 0x3164
+        || (codePoint >= 0xfe00 && codePoint <= 0xfe0f)
+        || codePoint === 0xfeff || codePoint === 0xffa0
+        || (codePoint >= 0xfff0 && codePoint <= 0xfffb)
+        || (codePoint >= 0x1bca0 && codePoint <= 0x1bca3)
+        || (codePoint >= 0x1d173 && codePoint <= 0x1d17a)
+        || (codePoint >= 0xe0000 && codePoint <= 0xe0fff);
+}
+
+function _containsUnsafeUnicodeFormatting(value) {
+    var text = String(value || "");
+    for (var i = 0; i < text.length; i++) {
+        var first = text.charCodeAt(i);
+        if (first >= 0xd800 && first <= 0xdbff) {
+            if (i + 1 >= text.length)
+                return true;
+            var second = text.charCodeAt(i + 1);
+            if (second < 0xdc00 || second > 0xdfff)
+                return true;
+            var codePoint = 0x10000 + ((first - 0xd800) * 0x400)
+                + (second - 0xdc00);
+            if (_isUnsafeFormattingCodePoint(codePoint))
+                return true;
+            i++;
+        } else if ((first >= 0xdc00 && first <= 0xdfff)
+                || _isUnsafeFormattingCodePoint(first)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 function normalizeBaseUrl(url) {
@@ -154,9 +199,20 @@ function buildRequest(provider, payload, apiKey) {
 }
 
 function ollamaRequest(payload) {
-    // Use OpenAI-compatible endpoint for SSE streaming
     var base = normalizeBaseUrl(payload.baseUrl || "http://localhost:11434");
-    var url = base + "/v1/chat/completions";
+    var hasTools = payload.tools && payload.tools.length > 0;
+    var messages = Array.isArray(payload.messages) ? payload.messages : [];
+    var hasNativeToolHistory = false;
+    for (var i = 0; i < messages.length; i++) {
+        var message = messages[i];
+        if (message && (message.role === "tool"
+                || (Array.isArray(message.tool_calls) && message.tool_calls.length > 0))) {
+            hasNativeToolHistory = true;
+            break;
+        }
+    }
+    var useNativeChat = hasTools || hasNativeToolHistory;
+    var url = base + (useNativeChat ? "/api/chat" : "/v1/chat/completions");
     var temp = clampTemperature("ollama", payload.model, payload.temperature);
     var thinkingMode = normalizeOllamaThinkingMode(payload.ollamaThinkingMode);
     var body = {
@@ -164,11 +220,49 @@ function ollamaRequest(payload) {
         messages: payload.messages,
         stream: true
     };
-    if (payload.max_tokens > 0) body.max_tokens = payload.max_tokens;
-    if (temp !== undefined) body.temperature = temp;
-    if (thinkingMode !== "default") body.reasoning_effort = thinkingMode;
+    if (useNativeChat) {
+        var options = {};
+        if (payload.max_tokens > 0) options.num_predict = payload.max_tokens;
+        if (temp !== undefined) options.temperature = temp;
+        var contextWindow = normalizeOllamaContextWindow(payload.ollamaContextWindow);
+        if (contextWindow > 0) options.num_ctx = contextWindow;
+        if (Object.keys(options).length > 0)
+            body.options = options;
+        if (thinkingMode === "none")
+            body.think = false;
+        else if (thinkingMode !== "default")
+            body.think = thinkingMode;
+        if (hasTools)
+            body.tools = payload.tools;
+    } else {
+        if (payload.max_tokens > 0) body.max_tokens = payload.max_tokens;
+        if (temp !== undefined) body.temperature = temp;
+        if (thinkingMode !== "default")
+            body.reasoning_effort = thinkingMode;
+    }
     // No auth header for Ollama
     return { url: url, headers: [], body: JSON.stringify(body) };
+}
+
+/**
+ * Normalize an optional Ollama context window. Zero uses the model default;
+ * explicit values are bounded to avoid accidental extreme memory allocation.
+ * Explicit values round up to a supported preset so the persisted value and
+ * settings UI cannot diverge.
+ *
+ * @param {*} value - Requested context size.
+ * @returns {number} 0 or one of 4096, 8192, 16384, 32768, 65536, 131072.
+ */
+function normalizeOllamaContextWindow(value) {
+    var parsed = Number(value);
+    if (!isFinite(parsed) || parsed <= 0)
+        return 0;
+    var presets = [4096, 8192, 16384, 32768, 65536, 131072];
+    for (var i = 0; i < presets.length; i++) {
+        if (parsed <= presets[i])
+            return presets[i];
+    }
+    return presets[presets.length - 1];
 }
 
 function normalizeOllamaThinkingMode(mode) {

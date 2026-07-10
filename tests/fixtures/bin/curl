@@ -1,0 +1,24 @@
+#!/bin/sh
+set -eu
+
+endpoint=""
+for argument do
+    case "$argument" in
+        http://localhost:11434/api/tags|http://127.0.0.1:11434/api/tags)
+            endpoint="tags"
+            ;;
+        http://localhost:11434/api/ps|http://127.0.0.1:11434/api/ps)
+            endpoint="ps"
+            ;;
+    esac
+done
+
+case "$endpoint" in
+    tags|ps)
+        printf '{"models":[]}\n'
+        ;;
+    *)
+        printf 'unexpected test curl invocation: %s\n' "$*" >&2
+        exit 2
+        ;;
+esac

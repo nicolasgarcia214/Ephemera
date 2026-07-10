@@ -1,0 +1,25 @@
+#!/bin/sh
+set -eu
+
+if [ -n "${NODE_OPTIONS:-}" ] || [ -n "${NODE_PATH:-}" ] \
+        || [ -n "${NODE_TLS_REJECT_UNAUTHORIZED:-}" ] \
+        || [ -n "${NODE_DEBUG:-}" ] || [ -n "${__IS_WSL_TEST__:-}" ] \
+        || [ -n "${OPENAI_API_KEY:-}" ] || [ -n "${ANTHROPIC_API_KEY:-}" ] \
+        || [ -n "${GEMINI_API_KEY:-}" ] || [ -n "${EPHEMERA_API_KEY:-}" ]; then
+    printf 'unsafe environment reached Node probe\n' >&2
+    exit 3
+fi
+
+REAL_NODE=${EPHEMERA_TEST_NODE:?missing real Node test executable}
+PROBE='JSON.stringify({nodeVersion:process.versions.node||'"'"''"'"',undiciVersion:process.versions.undici||'"'"''"'"',executable:process.execPath||'"'"''"'"'})'
+
+if [ "$#" -eq 2 ] && [ "$1" = "-p" ] && [ "$2" = "$PROBE" ]; then
+    if [ "${EPHEMERA_TEST_RUNTIME_OVERRIDE:-0}" = "1" ]; then
+        exec "$REAL_NODE" -p \
+            'JSON.stringify({nodeVersion:"24.17.0",undiciVersion:"7.28.0",executable:process.execPath})'
+    fi
+    exec "$REAL_NODE" "$@"
+fi
+
+printf 'unexpected PATH-based Node invocation: %s\n' "$*" >&2
+exit 2

@@ -80,6 +80,10 @@ Item {
                     ChatHistoryCard {
                         aiService: root.aiService
                     }
+
+                    McpSettingsCard {
+                        aiService: root.aiService
+                    }
                 }
             }
         }

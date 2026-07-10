@@ -99,6 +99,7 @@ Item {
             }
             onClearRequested: root._handleClearRequest()
             onExpandToggled: root.expandToggled()
+            onPanelSideToggled: aiService.togglePanelSide()
             onHideRequested: root.hideRequested()
         }
 
@@ -335,6 +336,25 @@ Item {
                     cursorShape: Qt.PointingHandCursor
                     onClicked: list.scrollToBottom()
                 }
+            }
+
+            McpToolApprovalPrompt {
+                id: toolApprovalPrompt
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.bottom: parent.bottom
+                anchors.bottomMargin: Theme.spacingM
+                width: parent.width - Theme.spacingL * 2
+                visible: aiService.mcpToolApprovalPending
+                toolName: aiService.mcpPendingToolName
+                toolDescription: aiService.mcpPendingToolDescription
+                argumentsText: aiService.mcpPendingToolArgumentsText
+                serverUrl: aiService.mcpUrl
+                z: 20
+                onRejectRequested: {
+                    aiService.rejectMcpToolCall();
+                    chatToast.show("Tool call rejected");
+                }
+                onApproveRequested: aiService.approveMcpToolCall()
             }
         }
 

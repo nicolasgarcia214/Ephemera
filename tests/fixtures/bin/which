@@ -1,0 +1,6 @@
+#!/bin/sh
+if [ "$#" -eq 1 ] && [ "$1" = "secret-tool" ]; then
+    exit 1
+fi
+printf 'unexpected test which invocation: %s\n' "$*" >&2
+exit 2

@@ -156,7 +156,7 @@ Item {
         running: false
         onRunningChanged: {
             if (running && root.ollamaStartPending) {
-                root._ollamaPid = ollamaProcess.pid;
+                root._ollamaPid = ollamaProcess.processId;
                 root.ollamaWeStarted = true;
                 root.ollamaStartPending = false;
             } else if (!running && root.ollamaWeStarted && !root._shuttingDown) {

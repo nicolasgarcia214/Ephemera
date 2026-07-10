@@ -1,0 +1,11 @@
+{
+  "name": "mcp-remote",
+  "version": "0.1.38",
+  "bin": {
+    "mcp-remote": "dist/proxy.js"
+  },
+  "dependencies": {
+    "open": "^10.1.0",
+    "undici": "7.28.0"
+  }
+}

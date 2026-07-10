@@ -1,0 +1,4 @@
+module Services
+singleton CompositorService 1.0 CompositorService.qml
+singleton SettingsData 1.0 SettingsData.qml
+singleton PluginService 1.0 PluginService.qml

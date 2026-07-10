@@ -45,6 +45,7 @@ Item {
             expandable: true
             expandedWidth: 960
             gap: 6
+            panelOnLeft: ephemeraService.panelOnLeft
 
             content: EphemeraChat {
                 aiService: ephemeraService

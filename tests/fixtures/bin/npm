@@ -1,0 +1,23 @@
+#!/bin/sh
+set -eu
+
+if [ -n "${NODE_OPTIONS:-}" ] || [ -n "${NODE_PATH:-}" ] \
+        || [ -n "${NODE_TLS_REJECT_UNAUTHORIZED:-}" ] \
+        || [ -n "${NODE_DEBUG:-}" ] || [ -n "${__IS_WSL_TEST__:-}" ] \
+        || [ -n "${OPENAI_API_KEY:-}" ] || [ -n "${ANTHROPIC_API_KEY:-}" ] \
+        || [ -n "${GEMINI_API_KEY:-}" ] || [ -n "${EPHEMERA_API_KEY:-}" ]; then
+    printf 'unsafe environment reached npm probe\n' >&2
+    exit 3
+fi
+
+if [ "$#" -ne 8 ] || [ "$1" != "list" ] || [ "$2" != "--global" ] \
+        || [ "$3" != "--json" ] || [ "$4" != "--long" ] \
+        || [ "$5" != "--depth=1" ] || [ "$6" != "mcp-remote" ] \
+        || [ "$7" != "undici" ] || [ "$8" != "open" ]; then
+    printf 'unexpected npm invocation\n' >&2
+    exit 2
+fi
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+PACKAGE_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/../mcp-remote-package" && pwd)
+printf '{"dependencies":{"mcp-remote":{"version":"0.1.38","path":"%s","bin":{"mcp-remote":"dist/proxy.js"},"dependencies":{"undici":{"version":"7.28.0"},"open":{"version":"10.2.0"}}}}}\n' "$PACKAGE_DIR"

@@ -17,6 +17,7 @@ PanelWindow {
     property real expandedWidth: 960
     property Component content: null
     property real gap: 0
+    property bool panelOnLeft: false
 
     signal opened()
 
@@ -39,6 +40,19 @@ PanelWindow {
         else show();
     }
 
+    function _syncWindowEdge() {
+        // Layer-shell applies each anchor property independently. Always release
+        // the old edge before selecting the new one so a side switch can never
+        // transiently stretch the surface between both horizontal edges.
+        if (panelOnLeft) {
+            root.anchors.right = false;
+            root.anchors.left = true;
+        } else {
+            root.anchors.left = false;
+            root.anchors.right = true;
+        }
+    }
+
     visible: isVisible
     screen: modelData
     color: "transparent"
@@ -46,6 +60,9 @@ PanelWindow {
     anchors.top: true
     anchors.bottom: true
     anchors.right: true
+
+    onPanelOnLeftChanged: _syncWindowEdge()
+    Component.onCompleted: _syncWindowEdge()
 
     readonly property real activeWidth: expandable && expanded ? expandedWidth : panelWidth
     implicitWidth: expandable ? expandedWidth + gap : panelWidth + gap
@@ -61,10 +78,10 @@ PanelWindow {
 
     mask: Region {
         item: Rectangle {
-            x: root.width - alignedWidth
+            x: slide.x + layeredContent.x
             y: 0
-            width: alignedWidth
-            height: root.height
+            width: slide.width
+            height: slide.height
         }
     }
 
@@ -72,15 +89,28 @@ PanelWindow {
         id: slide
         anchors.top: parent.top
         anchors.bottom: parent.bottom
-        anchors.right: parent.right
+        x: root.panelOnLeft ? 0 : parent.width - width
         width: alignedWidth
 
-        property real offset: alignedWidth
+        property real offset: hiddenOffset()
+
+        function hiddenOffset() {
+            return root.panelOnLeft ? -slide.width : slide.width;
+        }
+
+        function syncOffset() {
+            slide.offset = root.isVisible ? 0 : hiddenOffset();
+        }
+
+        onWidthChanged: syncOffset()
 
         Connections {
             target: root
             function onIsVisibleChanged() {
-                slide.offset = root.isVisible ? 0 : slide.width;
+                slide.syncOffset();
+            }
+            function onPanelOnLeftChanged() {
+                slide.syncOffset();
             }
         }
 
@@ -115,7 +145,8 @@ PanelWindow {
                 anchors.fill: parent
                 anchors.topMargin: root.gap
                 anchors.bottomMargin: root.gap
-                anchors.rightMargin: root.gap
+                anchors.rightMargin: panelOnLeft ? 0 : root.gap
+                anchors.leftMargin: panelOnLeft ? root.gap : 0
 
                 Rectangle {
                     anchors.fill: parent

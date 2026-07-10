@@ -42,11 +42,7 @@ SettingsCard {
             width: parent.width
             options: Providers.getProviderNames()
             currentValue: aiService.provider
-            onValueChanged: value => {
-                aiService.provider = value;
-                aiService.saveSettingValue("provider", value);
-                aiService.updateBaseUrl();
-            }
+            onValueChanged: value => aiService.setProvider(value)
         }
 
         // Ollama URL
@@ -130,6 +126,34 @@ SettingsCard {
                     aiService.ollamaThinkingMode = mode;
                     aiService.saveSettingValue("ollamaThinkingMode", mode);
                 }
+            }
+        }
+
+        // Native Ollama context window (used by MCP/tool chat)
+        AccordionSection {
+            show: aiService.provider === "ollama"
+
+            StyledText {
+                text: "Native Chat Context Window"
+                font.pixelSize: Theme.fontSizeSmall
+                color: Theme.surfaceVariantText
+            }
+
+            StyledText {
+                width: parent.width
+                text: "Applied to Ollama's native chat endpoint, including MCP tool rounds. Larger windows use more memory."
+                textFormat: Text.PlainText
+                font.pixelSize: Theme.fontSizeSmall
+                color: Theme.surfaceVariantText
+                wrapMode: Text.WordWrap
+            }
+
+            DankDropdown {
+                width: parent.width
+                options: ["Model default", "4K", "8K", "16K", "32K", "64K", "128K"]
+                currentValue: root._ollamaContextLabel(aiService.ollamaContextWindow)
+                onValueChanged: value =>
+                    aiService.setOllamaContextWindow(root._ollamaContextValue(value))
             }
         }
 
@@ -365,5 +389,29 @@ SettingsCard {
         case "High": return "high";
         default: return "default";
         }
+    }
+
+    function _ollamaContextLabel(value) {
+        var normalized = Providers.normalizeOllamaContextWindow(value);
+        if (normalized === 0) return "Model default";
+        if (normalized === 4096) return "4K";
+        if (normalized === 8192) return "8K";
+        if (normalized === 16384) return "16K";
+        if (normalized === 32768) return "32K";
+        if (normalized === 65536) return "64K";
+        if (normalized === 131072) return "128K";
+        return "Model default";
+    }
+
+    function _ollamaContextValue(label) {
+        var values = {
+            "4K": 4096,
+            "8K": 8192,
+            "16K": 16384,
+            "32K": 32768,
+            "64K": 65536,
+            "128K": 131072
+        };
+        return values[label] || 0;
     }
 }
