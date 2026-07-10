@@ -4,6 +4,9 @@ set -eu
 endpoint=""
 for argument do
     case "$argument" in
+        --ephemera-stream-error-test)
+            endpoint="stream-error"
+            ;;
         http://localhost:11434/api/tags|http://127.0.0.1:11434/api/tags)
             endpoint="tags"
             ;;
@@ -14,6 +17,11 @@ for argument do
 done
 
 case "$endpoint" in
+    stream-error)
+        printf '%s\n' 'data: {"error":{"message":"<b>api-key=must-not-leak</b>","type":"server_error","code":"fixture_failure"}}'
+        sleep 10
+        printf '%s\n' 'data: [DONE]'
+        ;;
     tags|ps)
         printf '{"models":[]}\n'
         ;;
