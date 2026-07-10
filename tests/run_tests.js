@@ -1146,6 +1146,54 @@ section("Markdown.markdownToHtml — custom colors");
     assert(r.indexOf("#FFFFFF") >= 0, "custom blockquote border");
 })();
 
+section("Markdown.renderCacheKey — text and theme colors");
+(function() {
+    var colors = {
+        codeBg: "#111111",
+        inlineCodeBg: "#222222",
+        blockquoteBg: "#333333",
+        blockquoteBorder: "#444444"
+    };
+    var original = Markdown.renderCacheKey("same text", colors);
+
+    assertEqual(
+        Markdown.renderCacheKey("same text", Object.assign({}, colors)),
+        original,
+        "identical text and colors reuse the cached render"
+    );
+    assert(
+        Markdown.renderCacheKey("changed text", colors) !== original,
+        "text changes invalidate the cached render"
+    );
+
+    ["codeBg", "inlineCodeBg", "blockquoteBg", "blockquoteBorder"].forEach(function(name) {
+        var changed = Object.assign({}, colors);
+        changed[name] = "#ABCDEF";
+        assert(
+            Markdown.renderCacheKey("same text", changed) !== original,
+            name + " changes invalidate the cached render"
+        );
+    });
+
+    var bubbleSource = fs.readFileSync(
+        path.join(__dirname, "..", "src/components/MessageBubble.qml"),
+        "utf8"
+    );
+    assert(
+        bubbleSource.indexOf("Markdown.renderCacheKey(root.text, themeColors)") >= 0
+            && bubbleSource.indexOf("onThemeColorsChanged:") >= 0,
+        "MessageBubble recomputes the complete key when theme colors change"
+    );
+    assert(
+        bubbleSource.indexOf('if (status === "ok" || status === "error")') >= 0,
+        "theme invalidation remains deferred until streaming completes"
+    );
+    assert(
+        bubbleSource.indexOf("contentArea.text = Qt.binding(function()") >= 0,
+        "textFormat changes still restore the content text binding"
+    );
+})();
+
 // ═════════════════════════════════════════════════════════════════
 //  ChatExport tests
 // ═════════════════════════════════════════════════════════════════

@@ -48,17 +48,18 @@ Item {
 
     readonly property bool useMarkdownRendering: !isUser && status !== "streaming"
     property string renderedHtml: ""
-    property string _lastRenderedText: ""
+    property string _lastRenderKey: ""
 
     function _updateRenderedHtml() {
-        if (!isUser && root.text !== _lastRenderedText) {
+        var renderKey = Markdown.renderCacheKey(root.text, themeColors);
+        if (!isUser && renderKey !== _lastRenderKey) {
             try {
                 renderedHtml = Markdown.markdownToHtml(root.text, themeColors);
             } catch (e) {
                 console.warn("Ephemera: markdown render error, falling back to plain text:", e);
                 renderedHtml = Markdown.escapeHtml(root.text);
             }
-            _lastRenderedText = root.text;
+            _lastRenderKey = renderKey;
         }
     }
 
@@ -73,6 +74,12 @@ Item {
             thinkingExpanded = false;
         }
         // Re-render if text changes while already in a terminal state
+        if (status === "ok" || status === "error")
+            _updateRenderedHtml();
+    }
+
+    onThemeColorsChanged: {
+        // Keep deferred rendering during streaming, even when the theme changes.
         if (status === "ok" || status === "error")
             _updateRenderedHtml();
     }
