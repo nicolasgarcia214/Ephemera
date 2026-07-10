@@ -27,4 +27,4 @@ jobs:
           node-version: 24.17.0
       - uses: cachix/install-nix-action@a49548c11d9846ad46ecc0115273879b045f001c # v31.10.7
       - name: Run MCP transport and QML lifecycle tests
-        run: nix shell github:quickshell-mirror/quickshell/59e9c47b0eb48a9e4bcf9631fa062ee939bd2e83 -c tests/run_qml_tests.sh # v0.3.0
+        run: nix shell github:quickshell-mirror/quickshell/59e9c47b0eb48a9e4bcf9631fa062ee939bd2e83 github:NixOS/nixpkgs/ffbc9f8cbaacfb331b6017d5a5abb21a492c9a38#weston -c tests/run_qml_tests.sh # Quickshell v0.3.0

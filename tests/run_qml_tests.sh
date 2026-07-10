@@ -2,6 +2,8 @@
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+HOST_XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-}
+HOST_WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-}
 TEST_NODE=$(command -v node)
 if "$TEST_NODE" -e '
 const node = (process.versions.node || "").split(".").map(Number);
@@ -19,18 +21,60 @@ else
     TEST_RUNTIME_OVERRIDE=1
 fi
 RUNTIME_DIR=$(mktemp -d /tmp/ephemera-qml-test.XXXXXX)
-trap 'rm -rf "$RUNTIME_DIR"' EXIT
+WESTON_PID=""
+cleanup() {
+    if [ -n "$WESTON_PID" ]; then
+        kill "$WESTON_PID" 2>/dev/null || true
+        wait "$WESTON_PID" 2>/dev/null || true
+    fi
+    rm -rf "$RUNTIME_DIR"
+}
+trap cleanup EXIT
 chmod 700 "$RUNTIME_DIR"
+
+SHIPPING_WAYLAND_SOCKET=""
+if [ -n "$HOST_XDG_RUNTIME_DIR" ] && [ -n "$HOST_WAYLAND_DISPLAY" ] \
+        && [ -S "$HOST_XDG_RUNTIME_DIR/$HOST_WAYLAND_DISPLAY" ]; then
+    SHIPPING_WAYLAND_SOCKET="$HOST_XDG_RUNTIME_DIR/$HOST_WAYLAND_DISPLAY"
+elif command -v weston >/dev/null 2>&1; then
+    WESTON_RUNTIME="$RUNTIME_DIR/weston"
+    mkdir -p "$WESTON_RUNTIME"
+    chmod 700 "$WESTON_RUNTIME"
+    XDG_RUNTIME_DIR="$WESTON_RUNTIME" weston --backend=headless-backend.so \
+        --renderer=pixman --socket=ephemera-test --idle-time=0 \
+        --log="$RUNTIME_DIR/weston.log" >/dev/null 2>&1 &
+    WESTON_PID=$!
+    attempts=0
+    while [ ! -S "$WESTON_RUNTIME/ephemera-test" ] && [ "$attempts" -lt 50 ]; do
+        if ! kill -0 "$WESTON_PID" 2>/dev/null; then
+            printf 'headless Weston exited before creating its Wayland socket\n' >&2
+            cat "$RUNTIME_DIR/weston.log" >&2
+            exit 1
+        fi
+        sleep 0.1
+        attempts=$((attempts + 1))
+    done
+    if [ ! -S "$WESTON_RUNTIME/ephemera-test" ]; then
+        printf 'headless Weston did not create its Wayland socket\n' >&2
+        exit 1
+    fi
+    SHIPPING_WAYLAND_SOCKET="$WESTON_RUNTIME/ephemera-test"
+fi
 CONFIG_DIR="$RUNTIME_DIR/config"
 mkdir -p "$CONFIG_DIR/src/services" "$CONFIG_DIR/src/lib" \
     "$CONFIG_DIR/src/runtime" \
-    "$CONFIG_DIR/Common" "$CONFIG_DIR/Services"
+    "$CONFIG_DIR/src/components" \
+    "$CONFIG_DIR/Common" "$CONFIG_DIR/Services" "$CONFIG_DIR/Widgets"
 cp "$ROOT/tests/McpServiceHarness.qml" "$CONFIG_DIR/McpServiceHarness.qml"
 cp "$ROOT/tests/McpApprovalHarness.qml" "$CONFIG_DIR/McpApprovalHarness.qml"
 cp "$ROOT/tests/ProviderIsolationHarness.qml" "$CONFIG_DIR/ProviderIsolationHarness.qml"
 cp "$ROOT/tests/CoordinatorHarness.qml" "$CONFIG_DIR/CoordinatorHarness.qml"
+cp "$ROOT/tests/ShippingCompileHarness.qml" "$CONFIG_DIR/ShippingCompileHarness.qml"
 cp "$ROOT/tests/fixtures/qml/Common/"* "$CONFIG_DIR/Common/"
 cp "$ROOT/tests/fixtures/qml/Services/"* "$CONFIG_DIR/Services/"
+cp "$ROOT/tests/fixtures/qml/Widgets/"* "$CONFIG_DIR/Widgets/"
+cp "$ROOT/EphemeraDaemon.qml" "$CONFIG_DIR/EphemeraDaemon.qml"
+cp "$ROOT/src/components/"*.qml "$CONFIG_DIR/src/components/"
 cp "$ROOT/src/services/EphemeraService.qml" "$CONFIG_DIR/src/services/EphemeraService.qml"
 cp "$ROOT/src/services/KeyringService.qml" "$CONFIG_DIR/src/services/KeyringService.qml"
 cp "$ROOT/src/services/MCPService.qml" "$CONFIG_DIR/src/services/MCPService.qml"
@@ -39,6 +83,7 @@ cp "$ROOT/src/services/StreamingService.qml" "$CONFIG_DIR/src/services/Streaming
 cp "$ROOT/src/lib/ChatExport.js" "$CONFIG_DIR/src/lib/ChatExport.js"
 cp "$ROOT/src/lib/Mcp.js" "$CONFIG_DIR/src/lib/Mcp.js"
 cp "$ROOT/src/lib/McpSchema.js" "$CONFIG_DIR/src/lib/McpSchema.js"
+cp "$ROOT/src/lib/Markdown.js" "$CONFIG_DIR/src/lib/Markdown.js"
 cp "$ROOT/src/lib/Providers.js" "$CONFIG_DIR/src/lib/Providers.js"
 cp "$ROOT/src/lib/StreamParser.js" "$CONFIG_DIR/src/lib/StreamParser.js"
 cp "$ROOT/src/lib/VariantStore.js" "$CONFIG_DIR/src/lib/VariantStore.js"
@@ -157,6 +202,17 @@ run_harness() {
     mkdir -p "$harness_runtime"
     chmod 700 "$harness_runtime"
 
+    qpa_platform=offscreen
+    wayland_display=""
+    if [ "$harness" = "ShippingCompileHarness" ]; then
+        if [ -z "$SHIPPING_WAYLAND_SOCKET" ]; then
+            printf 'shipping QML compile test requires Wayland or headless Weston\n' >&2
+            exit 1
+        fi
+        qpa_platform=wayland
+        wayland_display=$SHIPPING_WAYLAND_SOCKET
+    fi
+
     output=$(PATH="$ROOT/tests/fixtures/bin:$PATH" \
         EPHEMERA_TEST_NODE="$TEST_NODE" \
         EPHEMERA_TEST_RUNTIME_OVERRIDE="$TEST_RUNTIME_OVERRIDE" \
@@ -170,7 +226,9 @@ run_harness() {
         GEMINI_API_KEY="must-not-reach-mcp" \
         EPHEMERA_API_KEY="must-not-reach-mcp" \
         XDG_RUNTIME_DIR="$harness_runtime" \
-        QT_QPA_PLATFORM=offscreen \
+        WAYLAND_DISPLAY="$wayland_display" \
+        QT_QPA_PLATFORM="$qpa_platform" \
+        DMS_DISABLE_LAYER=1 \
         QS_NO_RELOAD_POPUP=1 \
         timeout 12s qs -p "$CONFIG_DIR/$harness.qml" 2>&1) || {
         printf '%s\n' "$output"
@@ -181,9 +239,15 @@ run_harness() {
     if ! printf '%s\n' "$output" | grep -Fq "$marker PASS"; then
         exit 1
     fi
-    unexpected=$(printf '%s\n' "$output" | grep -E \
-        '(^|[[:space:]])(ERROR|FATAL)([[:space:]:]|$)|ReferenceError:|TypeError:|Binding loop|Cannot assign|Cannot read property|unexpected test (curl|ollama|Node|which|secret-tool)' \
-        || true)
+    if [ "$harness" = "ShippingCompileHarness" ]; then
+        unexpected=$(printf '%s\n' "$output" | grep -E \
+            '(^|[[:space:]])(WARN|ERROR|FATAL)([[:space:]:]|$)|unexpected test (curl|ollama|Node|which|secret-tool|wl-copy|pkill|kill)' \
+            || true)
+    else
+        unexpected=$(printf '%s\n' "$output" | grep -E \
+            '(^|[[:space:]])(ERROR|FATAL)([[:space:]:]|$)|ReferenceError:|TypeError:|Binding loop|Cannot assign|Cannot read property|Unable to assign|Failed to load configuration|Type .* unavailable|is not a type|Required property .* was not initialized|No PanelWindow backend loaded|unexpected test (curl|ollama|Node|which|secret-tool|wl-copy|pkill|kill)' \
+            || true)
+    fi
     if [ -n "$unexpected" ]; then
         printf 'unexpected QML harness diagnostics:\n%s\n' "$unexpected" >&2
         exit 1
@@ -194,3 +258,4 @@ run_harness McpServiceHarness EPHEMERA_MCP_QML_TEST
 run_harness McpApprovalHarness EPHEMERA_MCP_APPROVAL_TEST
 run_harness ProviderIsolationHarness EPHEMERA_PROVIDER_ISOLATION_TEST
 run_harness CoordinatorHarness EPHEMERA_COORDINATOR_TEST
+run_harness ShippingCompileHarness EPHEMERA_SHIPPING_COMPILE_TEST
