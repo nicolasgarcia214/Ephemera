@@ -174,7 +174,7 @@ SettingsCard {
                 onEditingFinished: {
                     var url = text.trim();
                     if (!url) { customUrlError.text = ""; return; }
-                    var result = Providers.validateUrl(url);
+                    var result = Providers.validateCustomProviderUrl(url);
                     if (!result.valid) { customUrlError.text = result.error; return; }
                     customUrlError.text = "";
                     aiService.baseUrl = url;
