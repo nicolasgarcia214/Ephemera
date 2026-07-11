@@ -102,7 +102,7 @@ All settings are configurable from the in-app settings panel (tune icon):
 - **Ollama Thinking** — Default, Off, Low, Medium, or High reasoning effort for Ollama models that support it; Off requests no thinking
 - **Ollama Context Window** — optional 4K–128K native-chat context for MCP/tool rounds; the model default remains the memory-efficient default
 - **Custom Base URL** — for OpenAI-compatible endpoints (validated: http/https only, valid hostname, max 2048 chars)
-- **Extended Thinking** — toggle for Anthropic provider; enables extended thinking (forces temperature to 1.0, allocates 80% of max tokens as thinking budget)
+- **Extended Thinking** — toggle for Anthropic provider; uses adaptive thinking where supported and a bounded manual budget on older models, while omitting incompatible sampling parameters
 - **System Prompt** — prepended to every request; quick-select presets available or enter custom text
 - **Temperature** — 0.0 (focused) to 2.0 (creative)
 - **Max Tokens** — 256 to 16,384

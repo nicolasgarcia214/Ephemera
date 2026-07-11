@@ -355,7 +355,7 @@ These are non-negotiable design decisions:
 
 ## Adding a new provider
 
-1. **`src/lib/Providers.js`** — Add a `registry` entry with `name`, `envVar`, `defaultUrl`, `needsKey`, `hasNativeThinking`, temperature range (`tempMin`/`tempMax`/`tempDefault`), `modelPlaceholder`, and optionally `models` (hardcoded list) and `tempUnsupportedModels`. Add a corresponding `buildRequest` case in `buildRequest()`. The request builder returns `{ url, headers, body }`. Use the shared `extractSystemPrompt(payload.messages)` helper to separate system messages if the provider needs them in a different field.
+1. **`src/lib/Providers.js`** — Add a `registry` entry with `name`, `envVar`, `defaultUrl`, `needsKey`, `hasNativeThinking`, temperature range (`tempMin`/`tempMax`/`tempDefault`), `modelPlaceholder`, and optionally `models` (hardcoded list). Add a corresponding `buildRequest` case in `buildRequest()`. The request builder returns `{ url, headers, body }`. Use the shared `extractSystemPrompt(payload.messages)` helper to separate system messages if the provider needs them in a different field.
 
 2. **`src/lib/StreamParser.js`** — If the streaming format differs from OpenAI's SSE, add a case in `parseDelta()`.
 
