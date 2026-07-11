@@ -78,6 +78,7 @@ var ChatExport = loadPragmaLib("src/lib/ChatExport.js");
 var Mcp = loadPragmaLib("src/lib/Mcp.js");
 var McpSchema = loadPragmaLib("src/lib/McpSchema.js");
 var VariantStore = loadPragmaLib("src/lib/VariantStore.js");
+var ChatPersistence = loadPragmaLib("src/lib/ChatPersistence.js");
 var ErrorHints = loadPragmaLib("src/lib/ErrorHints.js");
 var Submission = loadPragmaLib("src/lib/Submission.js");
 
@@ -1686,6 +1687,199 @@ section("McpSchema.validateToolResult");
         isError: true,
         content: [{ type: "text", text: "failed" }]
     }).valid, true, "allows a well-formed error result without structured output");
+})();
+
+// ═════════════════════════════════════════════════════════════════
+// ChatPersistence.js tests
+// ═════════════════════════════════════════════════════════════════
+
+function persistedMessage(role, id, content) {
+    return {
+        role: role,
+        content: content || "",
+        thinking: "",
+        id: id,
+        timestamp: Number(id.replace(/\D/g, "")) || 1,
+        status: "ok",
+        variantIndex: 0,
+        variantCount: 1,
+        modelName: ""
+    };
+}
+
+function persistedTurns(count, content) {
+    var messages = [];
+    for (var i = 0; i < count; i++) {
+        messages.push(persistedMessage("user", "user-" + i, content));
+        messages.push(persistedMessage("assistant", "assistant-" + i, content));
+    }
+    return messages;
+}
+
+section("ChatPersistence exact bounds");
+
+(function() {
+    var exact = persistedTurns(ChatPersistence.maxMessages / 2, "small");
+    exact[exact.length - 1].content = "x".repeat(ChatPersistence.maxContentBytes);
+    exact[exact.length - 1].thinking = "t".repeat(ChatPersistence.maxThinkingBytes);
+    exact[exact.length - 1].modelName = "m".repeat(ChatPersistence.maxModelBytes);
+    var prepared = ChatPersistence.prepareState({
+        version: 1,
+        messages: exact,
+        variants: {}
+    }, 1);
+    assert(prepared !== null, "accepts fields exactly at their byte bounds");
+    assertEqual(prepared.payload.messages.length, ChatPersistence.maxMessages,
+        "retains exactly the documented message limit when bytes permit");
+    assertEqual(prepared.payload.messages[prepared.payload.messages.length - 1].content.length,
+        ChatPersistence.maxContentBytes, "retains exact-bound content");
+    assert(ChatPersistence.utf8ByteLength(JSON.stringify(prepared.payload))
+            <= ChatPersistence.maxSerializedBytes,
+        "exact-bound payload remains within the serialized-byte limit");
+
+    var oversized = persistedTurns(1, "");
+    oversized[1].content = "x".repeat(ChatPersistence.maxContentBytes + 1);
+    oversized[1].thinking = "😀".repeat(ChatPersistence.maxThinkingBytes / 4 + 1);
+    oversized[1].modelName = "m".repeat(ChatPersistence.maxModelBytes + 1);
+    prepared = ChatPersistence.prepareState({
+        version: 1,
+        messages: oversized,
+        variants: {}
+    }, 1);
+    assertEqual(ChatPersistence.utf8ByteLength(prepared.payload.messages[1].content),
+        ChatPersistence.maxContentBytes, "truncates content at the exact UTF-8 bound");
+    assertEqual(ChatPersistence.utf8ByteLength(prepared.payload.messages[1].thinking),
+        ChatPersistence.maxThinkingBytes, "does not split a UTF-8 code point");
+    assertEqual(ChatPersistence.utf8ByteLength(prepared.payload.messages[1].modelName),
+        ChatPersistence.maxModelBytes, "truncates model names at their byte bound");
+})();
+
+section("ChatPersistence deterministic pruning and variants");
+
+(function() {
+    var interrupted = [
+        persistedMessage("user", "user-interrupted", "interrupted request"),
+        persistedMessage("user", "user-later", "later request"),
+        persistedMessage("assistant", "assistant-later", "later response")
+    ];
+    var variants = {
+        "assistant-later": [{
+            content: "later response", thinking: "", modelName: "test-model"
+        }]
+    };
+    interrupted[2].modelName = "test-model";
+    var prepared = ChatPersistence.createSnapshot(interrupted, variants, 1);
+    assert(prepared !== null,
+        "accepts a dangling user followed by a completed user/assistant turn");
+    assertDeepEqual(prepared.payload.messages.map(function(message) {
+        return message.role;
+    }), ["user", "user", "assistant"],
+        "preserves interrupted user-only turns in coherent order");
+    assertEqual(prepared.payload.messages[0].id, "user-interrupted",
+        "retains the interrupted request");
+    assertEqual(prepared.payload.variants["assistant-later"][0].content,
+        "later response", "retains variants for the later paired assistant");
+
+    assertEqual(ChatPersistence.prepareState({
+        version: 1,
+        messages: [
+            persistedMessage("user", "user-paired", "request"),
+            persistedMessage("assistant", "assistant-paired", "response"),
+            persistedMessage("assistant", "assistant-unpaired", "invalid")
+        ],
+        variants: {}
+    }, 1), null, "rejects an assistant without an immediately preceding user");
+})();
+
+(function() {
+    var messages = persistedTurns(101, "turn");
+    var variants = {
+        "assistant-100": [],
+        "orphan-assistant": [{ content: "orphan", thinking: "", modelName: "" }]
+    };
+    for (var i = 0; i < 11; i++) {
+        variants["assistant-100"].push({
+            content: "variant-" + i,
+            thinking: "thought-" + i,
+            modelName: "model-" + i
+        });
+    }
+    messages[messages.length - 1].variantIndex = 10;
+    messages[messages.length - 1].variantCount = 11;
+
+    var first = ChatPersistence.prepareState({
+        version: 1,
+        messages: messages,
+        variants: variants
+    }, 1);
+    var second = ChatPersistence.prepareState({
+        version: 1,
+        messages: messages,
+        variants: variants
+    }, 1);
+    assertEqual(first.payload.messages.length, ChatPersistence.maxMessages,
+        "prunes an oversized history to the exact message cap");
+    assertEqual(first.payload.messages[0].id, "user-1",
+        "prunes complete oldest turns first");
+    assertEqual(first.payload.messages[first.payload.messages.length - 1].id,
+        "assistant-100", "retains the newest useful assistant context");
+    assertEqual(first.payload.variants["assistant-100"].length,
+        ChatPersistence.maxVariantsPerMessage,
+        "enforces the existing UI variant cap");
+    assertEqual(first.payload.variants["assistant-100"][0].content, "variant-1",
+        "variant overflow uses deterministic FIFO pruning");
+    assertEqual(first.payload.messages[first.payload.messages.length - 1].variantIndex, 9,
+        "repairs variant indices after FIFO pruning");
+    assertEqual(first.payload.variants["orphan-assistant"], undefined,
+        "persists variants only for retained assistant messages");
+    assertDeepEqual(first.payload, second.payload,
+        "oldest-first pruning is stable across repeated normalization");
+})();
+
+section("ChatPersistence byte overflow and malicious input");
+
+(function() {
+    var large = persistedTurns(20, "q".repeat(ChatPersistence.maxContentBytes));
+    for (var i = 0; i < large.length; i++)
+        large[i].thinking = "\\".repeat(ChatPersistence.maxThinkingBytes);
+    var prepared = ChatPersistence.prepareState({
+        version: 1,
+        messages: large,
+        variants: {}
+    }, 1);
+    var serializedBytes = ChatPersistence.utf8ByteLength(
+        JSON.stringify(prepared.payload));
+    assert(serializedBytes <= ChatPersistence.maxSerializedBytes,
+        "serialized payload never exceeds the byte limit after escaping");
+    assert(prepared.payload.messages.length < large.length,
+        "byte overflow prunes conversation turns");
+    assertEqual(prepared.payload.messages[prepared.payload.messages.length - 1].id,
+        "assistant-19", "byte pruning preserves the newest turn");
+    assertEqual(prepared.payload.messages[0].role, "user",
+        "byte pruning preserves coherent turn ordering");
+
+    var tooMany = new Array(ChatPersistence.maxInputMessages + 1);
+    assertEqual(ChatPersistence.prepareState({
+        version: 1,
+        messages: tooMany,
+        variants: {}
+    }, 1), null, "rejects message collections beyond the inspection ceiling");
+
+    var malformed = persistedTurns(1, "safe");
+    malformed[1].content = { nested: "not text" };
+    assertEqual(ChatPersistence.prepareState({
+        version: 1,
+        messages: malformed,
+        variants: {}
+    }, 1), null, "rejects structurally malicious nested message fields");
+
+    malformed = persistedTurns(1, "safe");
+    malformed[1].unexpected = { deeply: { nested: true } };
+    assertEqual(ChatPersistence.prepareState({
+        version: 1,
+        messages: malformed,
+        variants: {}
+    }, 1), null, "rejects unknown persisted object structure");
 })();
 
 // ═════════════════════════════════════════════════════════════════

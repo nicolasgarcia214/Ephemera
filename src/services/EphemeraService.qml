@@ -8,13 +8,14 @@ import "../lib/ChatExport.js" as ChatExport
 import "../lib/Mcp.js" as Mcp
 import "../lib/Submission.js" as Submission
 import "../lib/VariantStore.js" as VariantStore
+import "../lib/ChatPersistence.js" as ChatPersistence
 
 Item {
     id: root
 
     property string pluginId: "ephemera"
 
-    // --- Message state (in-memory only, never persisted) ---
+    // --- Message state (live state; persistence uses bounded snapshots) ---
     property ListModel messagesModel: ListModel {}
     property int messageCount: messagesModel.count
     property var messageIndexMap: ({})
@@ -43,6 +44,16 @@ Item {
     property bool persistChat: false
     readonly property string _chatStateKey: "chatState"
     readonly property int _chatStateVersion: 1
+    // Snapshots retain at most 200 completed messages (normally 100 paired
+    // user/assistant turns), 10 variants per assistant, 32 KiB content/thinking
+    // fields, 512-byte model fields, and a 1 MiB serialized payload. These
+    // bounds never alter the live chat model.
+    readonly property int persistedMessageLimit: ChatPersistence.maxMessages
+    readonly property int maxVariantsPerMessage: ChatPersistence.maxVariantsPerMessage
+    readonly property int persistedContentByteLimit: ChatPersistence.maxContentBytes
+    readonly property int persistedThinkingByteLimit: ChatPersistence.maxThinkingBytes
+    readonly property int persistedModelByteLimit: ChatPersistence.maxModelBytes
+    readonly property int persistedPayloadByteLimit: ChatPersistence.maxSerializedBytes
 
     // --- Provider settings ---
     property string _provider: "ollama"
@@ -541,7 +552,8 @@ Item {
     function _commitChatHistory() {
         if (!persistChat) return;
         var msgs = [];
-        for (var i = 0; i < messagesModel.count; i++) {
+        for (var i = messagesModel.count - 1;
+                i >= 0 && msgs.length < persistedMessageLimit + 1; i--) {
             var m = messagesModel.get(i);
             if (m.status === "streaming") continue;
             msgs.push({
@@ -551,11 +563,18 @@ Item {
                 modelName: m.modelName || ""
             });
         }
-        PluginService.savePluginState(pluginId, _chatStateKey, {
-            version: _chatStateVersion,
-            messages: msgs,
-            variants: JSON.parse(JSON.stringify(variantStore))
-        });
+        msgs.reverse();
+        if (msgs.length > 0 && msgs[0].role === "assistant")
+            msgs.shift();
+
+        var snapshot = ChatPersistence.createSnapshot(
+            msgs, variantStore, _chatStateVersion);
+        if (!snapshot) {
+            console.warn("Ephemera: refusing to persist invalid live chat state");
+            return;
+        }
+        PluginService.savePluginState(
+            pluginId, _chatStateKey, snapshot.payload);
     }
 
     Timer {
@@ -565,102 +584,28 @@ Item {
         onTriggered: root._commitChatHistory()
     }
 
-    function _isSafeStateKey(value) {
-        return typeof value === "string" && value.length > 0
-            && value !== "__proto__" && value !== "constructor"
-            && value !== "prototype";
-    }
-
-    function _prepareChatState(payload) {
-        if (!payload || typeof payload !== "object" || Array.isArray(payload)
-                || payload.version !== _chatStateVersion
-                || !Array.isArray(payload.messages)
-                || !payload.variants || typeof payload.variants !== "object"
-                || Array.isArray(payload.variants))
-            return null;
-
+    function _applyPreparedChatState(payload) {
         var entries = [];
         var indexMap = {};
         var lastUser = "";
         for (var i = 0; i < payload.messages.length; i++) {
             var m = payload.messages[i];
-            if (!m || typeof m !== "object" || Array.isArray(m)
-                    || (m.role !== "user" && m.role !== "assistant")
-                    || typeof m.content !== "string"
-                    || !_isSafeStateKey(m.id)
-                    || indexMap[m.id] !== undefined
-                    || typeof m.timestamp !== "number" || !isFinite(m.timestamp)
-                    || (m.thinking !== undefined && typeof m.thinking !== "string")
-                    || (m.modelName !== undefined && typeof m.modelName !== "string"))
-                return null;
-
-            var status = m.status === undefined ? "ok" : m.status;
-            if (status !== "ok" && status !== "error" && status !== "streaming")
-                return null;
-            if (status === "streaming") status = "ok";
-
-            var variantIndex = m.variantIndex === undefined ? 0 : m.variantIndex;
-            var variantCount = m.variantCount === undefined ? 1 : m.variantCount;
-            if (typeof variantIndex !== "number" || !isFinite(variantIndex)
-                    || Math.floor(variantIndex) !== variantIndex || variantIndex < 0
-                    || typeof variantCount !== "number" || !isFinite(variantCount)
-                    || Math.floor(variantCount) !== variantCount || variantCount < 1
-                    || variantIndex >= variantCount)
-                return null;
-
             var entry = _createMessageEntry(
-                m.role, m.content, m.id, m.timestamp, status, m.modelName || "");
-            entry.thinking = m.thinking || "";
-            entry.variantIndex = variantIndex;
-            entry.variantCount = variantCount;
+                m.role, m.content, m.id, m.timestamp, m.status, m.modelName);
+            entry.thinking = m.thinking;
+            entry.variantIndex = m.variantIndex;
+            entry.variantCount = m.variantCount;
             entries.push(entry);
             indexMap[m.id] = i;
             if (m.role === "user") lastUser = m.content;
         }
 
-        var variants = {};
-        for (var msgId in payload.variants) {
-            if (!Object.prototype.hasOwnProperty.call(payload.variants, msgId))
-                continue;
-            var values = payload.variants[msgId];
-            if (!_isSafeStateKey(msgId) || indexMap[msgId] === undefined
-                    || !Array.isArray(values)
-                    || values.length > maxVariantsPerMessage)
-                return null;
-            var copied = [];
-            for (var j = 0; j < values.length; j++) {
-                var variant = values[j];
-                if (!variant || typeof variant !== "object" || Array.isArray(variant)
-                        || typeof variant.content !== "string"
-                        || (variant.thinking !== undefined
-                            && typeof variant.thinking !== "string")
-                        || (variant.modelName !== undefined
-                            && typeof variant.modelName !== "string"))
-                    return null;
-                copied.push({
-                    content: variant.content,
-                    thinking: variant.thinking || "",
-                    modelName: variant.modelName || ""
-                });
-            }
-            variants[msgId] = copied;
-        }
-
-        return {
-            entries: entries,
-            indexMap: indexMap,
-            variants: variants,
-            lastUser: lastUser
-        };
-    }
-
-    function _applyPreparedChatState(prepared) {
         messagesModel.clear();
-        for (var i = 0; i < prepared.entries.length; i++)
-            messagesModel.append(prepared.entries[i]);
-        messageIndexMap = prepared.indexMap;
-        variantStore = prepared.variants;
-        lastUserText = prepared.lastUser;
+        for (var j = 0; j < entries.length; j++)
+            messagesModel.append(entries[j]);
+        messageIndexMap = indexMap;
+        variantStore = payload.variants;
+        lastUserText = lastUser;
     }
 
     function _discardInvalidStoredChat(message) {
@@ -675,13 +620,17 @@ Item {
 
         var stored = PluginService.loadPluginState(pluginId, _chatStateKey, null);
         if (stored !== null) {
-            var prepared = _prepareChatState(stored);
+            var prepared = ChatPersistence.prepareState(
+                stored, _chatStateVersion);
             if (!prepared) {
                 _discardInvalidStoredChat("invalid versioned state");
                 return;
             }
+            if (prepared.changed)
+                PluginService.savePluginState(
+                    pluginId, _chatStateKey, prepared.payload);
             _clearLegacyChatData();
-            _applyPreparedChatState(prepared);
+            _applyPreparedChatState(prepared.payload);
             return;
         }
 
@@ -693,19 +642,24 @@ Item {
             if (typeof historyRaw !== "string" || !historyRaw
                     || typeof variantsRaw !== "string")
                 throw new Error("invalid legacy values");
+            if (historyRaw.length + variantsRaw.length
+                    > ChatPersistence.maxLegacyInputChars)
+                throw new Error("legacy state exceeds inspection limit");
             var legacyPayload = {
                 version: _chatStateVersion,
                 messages: JSON.parse(historyRaw),
                 variants: variantsRaw ? JSON.parse(variantsRaw) : {}
             };
-            var migrated = _prepareChatState(legacyPayload);
+            var migrated = ChatPersistence.prepareState(
+                legacyPayload, _chatStateVersion);
             if (!migrated)
                 throw new Error("invalid legacy state");
 
             // Promote the fully validated pair before erasing the legacy keys.
-            PluginService.savePluginState(pluginId, _chatStateKey, legacyPayload);
+            PluginService.savePluginState(
+                pluginId, _chatStateKey, migrated.payload);
             _clearLegacyChatData();
-            _applyPreparedChatState(migrated);
+            _applyPreparedChatState(migrated.payload);
         } catch (e) {
             _discardInvalidStoredChat(e);
         }
@@ -793,8 +747,6 @@ Item {
     function cancel() {
         streamingService.cancel();
     }
-
-    readonly property int maxVariantsPerMessage: 10
 
     function switchVariant(msgId, newIndex) {
         var idx = findIndexById(msgId);
