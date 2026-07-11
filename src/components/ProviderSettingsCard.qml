@@ -219,7 +219,7 @@ SettingsCard {
                     }
 
                     StyledText {
-                        text: "Forces temperature to 1. Supported on claude-3.7-sonnet and newer."
+                        text: "Uses adaptive thinking on current Claude models and a bounded manual budget on older supported models."
                         font.pixelSize: Theme.fontSizeSmall
                         color: Theme.surfaceVariantText
                         wrapMode: Text.WordWrap

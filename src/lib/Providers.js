@@ -382,6 +382,10 @@ function openaiRequest(payload, apiKey) {
     return _openaiCompatibleRequest(payload, apiKey, "openai");
 }
 
+function _isOpenAiOSeriesModel(model) {
+    return /^o[0-9]+(?:$|[-_])/.test(String(model || "").toLowerCase());
+}
+
 function _openaiCompatibleRequest(payload, apiKey, provider) {
     var url = openaiChatCompletionsUrl(payload.baseUrl || "https://api.openai.com");
     var safeKey = sanitizeApiKey(apiKey);
@@ -394,7 +398,12 @@ function _openaiCompatibleRequest(payload, apiKey, provider) {
         stream: true,
         stream_options: { include_usage: true }
     };
-    if (payload.max_tokens > 0) body.max_tokens = payload.max_tokens;
+    if (payload.max_tokens > 0) {
+        if (provider === "openai" && _isOpenAiOSeriesModel(payload.model))
+            body.max_completion_tokens = payload.max_tokens;
+        else
+            body.max_tokens = payload.max_tokens;
+    }
     if (temp !== undefined) body.temperature = temp;
     return { url: url, headers: headers, body: JSON.stringify(body) };
 }
@@ -409,8 +418,11 @@ function anthropicRequest(payload, apiKey) {
         "-H", "anthropic-version: 2023-06-01"
     ];
 
-    if (payload.thinkingEnabled)
+    var thinkingMode = _anthropicThinkingMode(payload.model);
+    if (payload.thinkingEnabled && thinkingMode === "manual"
+            && _anthropicNeedsInterleavedHeader(payload.model)) {
         headers.push("-H", "anthropic-beta: interleaved-thinking-2025-05-14");
+    }
 
     // Extract system prompt from messages if present
     var extracted = extractSystemPrompt(payload.messages);
@@ -423,10 +435,17 @@ function anthropicRequest(payload, apiKey) {
         });
     }
 
-    // Anthropic requires max_tokens — use 128000 as high cap when unlimited
-    var maxTokens = (payload.max_tokens > 0) ? payload.max_tokens : 128000;
-    // Anthropic requires temperature=1 when extended thinking is enabled
-    var temp = payload.thinkingEnabled ? 1 : clampTemperature("anthropic", payload.model, payload.temperature);
+    // Anthropic requires max_tokens and rejects values above each model's cap.
+    var outputCap = _anthropicOutputCap(payload.model);
+    var requestedMax = Number(payload.max_tokens);
+    var maxTokens = (isFinite(requestedMax) && requestedMax > 0)
+        ? Math.min(Math.floor(requestedMax), outputCap) : outputCap;
+    // Manual thinking requires a minimum 1,024-token budget strictly below max_tokens.
+    if (payload.thinkingEnabled && thinkingMode === "manual" && maxTokens <= 1024)
+        maxTokens = Math.min(1025, outputCap);
+    var alwaysThinking = _anthropicAlwaysThinking(payload.model);
+    var temp = (payload.thinkingEnabled || alwaysThinking)
+        ? undefined : clampTemperature("anthropic", payload.model, payload.temperature);
     var body = {
         model: payload.model,
         messages: filteredMessages,
@@ -435,13 +454,80 @@ function anthropicRequest(payload, apiKey) {
     };
     if (temp !== undefined) body.temperature = temp;
 
-    if (payload.thinkingEnabled)
-        body.thinking = { type: "enabled", budget_tokens: Math.max(1024, Math.floor(maxTokens * 0.8)) };
+    if (payload.thinkingEnabled && !alwaysThinking) {
+        if (thinkingMode === "adaptive") {
+            body.thinking = { type: "adaptive", display: "summarized" };
+        } else {
+            var budgetTokens = Math.max(1024, Math.floor(maxTokens * 0.8));
+            body.thinking = {
+                type: "enabled",
+                budget_tokens: Math.min(budgetTokens, maxTokens - 1)
+            };
+        }
+    }
 
     if (extracted.systemText)
         body.system = extracted.systemText;
 
     return { url: url, headers: headers, body: JSON.stringify(body) };
+}
+
+function _anthropicModelMatches(model, prefix) {
+    var m = String(model || "").toLowerCase();
+    return m === prefix || m.indexOf(prefix + "-") === 0;
+}
+
+function _anthropicAlwaysThinking(model) {
+    return _anthropicModelMatches(model, "claude-fable-5")
+        || _anthropicModelMatches(model, "claude-mythos-5")
+        || _anthropicModelMatches(model, "claude-mythos-preview");
+}
+
+function _anthropicThinkingMode(model) {
+    var adaptiveModels = [
+        "claude-fable-5", "claude-mythos-5", "claude-mythos-preview",
+        "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6",
+        "claude-sonnet-5", "claude-sonnet-4-6"
+    ];
+    for (var i = 0; i < adaptiveModels.length; i++) {
+        if (_anthropicModelMatches(model, adaptiveModels[i]))
+            return "adaptive";
+    }
+    return "manual";
+}
+
+function _anthropicNeedsInterleavedHeader(model) {
+    var m = String(model || "").toLowerCase();
+    if (m.indexOf("haiku") >= 0)
+        return false;
+    return _anthropicModelMatches(m, "claude-opus-4-5")
+        || _anthropicModelMatches(m, "claude-sonnet-4-5")
+        || _anthropicModelMatches(m, "claude-opus-4-1")
+        || _anthropicModelMatches(m, "claude-opus-4")
+        || _anthropicModelMatches(m, "claude-sonnet-4");
+}
+
+function _anthropicOutputCap(model) {
+    var highCapacityModels = [
+        "claude-fable-5", "claude-mythos-5", "claude-mythos-preview",
+        "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6",
+        "claude-sonnet-5", "claude-sonnet-4-6"
+    ];
+    for (var i = 0; i < highCapacityModels.length; i++) {
+        if (_anthropicModelMatches(model, highCapacityModels[i]))
+            return 128000;
+    }
+    if (_anthropicModelMatches(model, "claude-haiku-4-5")
+            || _anthropicModelMatches(model, "claude-opus-4-5")
+            || _anthropicModelMatches(model, "claude-sonnet-4-5")
+            || _anthropicModelMatches(model, "claude-3-7-sonnet")) {
+        return 64000;
+    }
+    if (String(model || "").toLowerCase().indexOf("claude-3-5-") === 0)
+        return 8192;
+    if (String(model || "").toLowerCase().indexOf("claude-3-") === 0)
+        return 4096;
+    return 64000;
 }
 
 function geminiRequest(payload, apiKey) {
@@ -511,11 +597,9 @@ var registry = {
         hasNativeThinking: false,
         tempMin: 0.0, tempMax: 2.0, tempDefault: 1.0,
         modelPlaceholder: "gpt-5.4",
-        // o1/o3 reasoning models don't support temperature
-        tempUnsupportedModels: ["o1", "o3"],
         models: [
-            "gpt-5.4", "gpt-5.4-pro", "gpt-5", "gpt-5-mini", "gpt-5-nano",
-            "gpt-4.1", "o4-mini", "o3", "o3-pro", "gpt-4o", "gpt-4o-mini"
+            "gpt-5.4", "gpt-5", "gpt-5-mini", "gpt-5-nano",
+            "gpt-4.1", "o4-mini", "o3", "gpt-4o", "gpt-4o-mini"
         ]
     },
     "anthropic": {
@@ -527,6 +611,7 @@ var registry = {
         tempMin: 0.0, tempMax: 1.0, tempDefault: 1.0,
         modelPlaceholder: "claude-sonnet-4-6",
         models: [
+            "claude-fable-5", "claude-opus-4-8", "claude-sonnet-5",
             "claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5",
             "claude-sonnet-4-5", "claude-opus-4-5"
         ]
@@ -541,7 +626,7 @@ var registry = {
         modelPlaceholder: "gemini-2.5-flash",
         models: [
             "gemini-3.1-pro-preview", "gemini-3-flash-preview",
-            "gemini-3.1-flash-lite-preview", "gemini-2.5-pro",
+            "gemini-3.1-flash-lite", "gemini-2.5-pro",
             "gemini-2.5-flash", "gemini-2.5-flash-lite"
         ]
     },
@@ -581,31 +666,18 @@ function getModelList(provider) {
 /**
  * Clamp temperature to a provider's valid range, or return undefined if unsupported.
  *
- * Some models (OpenAI o1/o3 reasoning models) do not support temperature at all.
- * Detection uses prefix matching with separator check: "o1-mini" matches but "o100" does not.
+ * OpenAI o-series models do not support temperature at all.
  * Falls back to the provider's default temperature when the input is null/undefined.
  *
  * @param {string} provider - Provider identifier.
- * @param {string} model - Model name (checked against tempUnsupportedModels).
+ * @param {string} model - Model name (checked for OpenAI o-series compatibility).
  * @param {number} temperature - Requested temperature value.
  * @returns {number|undefined} Clamped temperature, or undefined if the model rejects temperature.
  */
 function clampTemperature(provider, model, temperature) {
     var info = registry[provider] || registry["custom"];
-    // Check if model doesn't support temperature
-    if (info.tempUnsupportedModels) {
-        var m = (model || "").toLowerCase();
-        for (var i = 0; i < info.tempUnsupportedModels.length; i++) {
-            var prefix = info.tempUnsupportedModels[i];
-            if (m === prefix) return undefined;
-            // Match prefix followed by a separator (e.g. "o1-mini", "o3-preview")
-            // but not a continuation like "o1.5" or "o100"
-            if (m.indexOf(prefix) === 0) {
-                var next = m.charAt(prefix.length);
-                if (next === "-" || next === "_") return undefined;
-            }
-        }
-    }
+    if (provider === "openai" && _isOpenAiOSeriesModel(model))
+        return undefined;
     var t = (temperature !== undefined && temperature !== null) ? temperature : info.tempDefault;
     return Math.max(info.tempMin, Math.min(info.tempMax, t));
 }

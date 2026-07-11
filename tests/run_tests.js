@@ -649,6 +649,7 @@ section("Providers.clampTemperature");
     // Unsupported models — exact match
     assertEqual(Providers.clampTemperature("openai", "o1", 0.5), undefined, "o1 exact match returns undefined");
     assertEqual(Providers.clampTemperature("openai", "o3", 0.5), undefined, "o3 exact match returns undefined");
+    assertEqual(Providers.clampTemperature("openai", "o4-mini", 0.5), undefined, "o4-mini exact family returns undefined");
 
     // Unsupported models — prefix with separator
     assertEqual(Providers.clampTemperature("openai", "o1-mini", 0.5), undefined, "o1-mini returns undefined");
@@ -656,12 +657,12 @@ section("Providers.clampTemperature");
     assertEqual(Providers.clampTemperature("openai", "o3-mini", 0.5), undefined, "o3-mini returns undefined");
     assertEqual(Providers.clampTemperature("openai", "o1_custom", 0.5), undefined, "o1_custom returns undefined");
 
-    // BUG FIX: Models that start with o1/o3 but aren't reasoning models
+    // Models that resemble an o-series name without its numeric identifier boundary
     var result = Providers.clampTemperature("openai", "o1.5", 0.5);
     assert(result !== undefined, "o1.5 is NOT an unsupported model (not a reasoning model)");
 
     result = Providers.clampTemperature("openai", "o100", 0.5);
-    assert(result !== undefined, "o100 is NOT an unsupported model");
+    assertEqual(result, undefined, "future numeric o-series names fail safe");
 
     result = Providers.clampTemperature("openai", "o3x", 0.5);
     assert(result !== undefined, "o3x is NOT an unsupported model");
@@ -854,9 +855,23 @@ section("Providers.buildCurlCommand");
     r = Providers.buildCurlCommand("openai", payload, "");
     assertEqual(r, null, "OpenAI returns null without key");
 
+    payload.model = "o3";
+    r = Providers.buildCurlCommand("openai", payload, "sk-test123");
+    body = parseCurlConfigBody(r.body);
+    assertEqual(body.max_completion_tokens, 4096, "OpenAI o-series uses max_completion_tokens");
+    assertEqual(body.max_tokens, undefined, "OpenAI o-series omits deprecated max_tokens");
+    assertEqual(body.temperature, undefined, "OpenAI o-series omits temperature");
+
+    payload.model = "o4-mini";
+    r = Providers.buildCurlCommand("openai", payload, "sk-test123");
+    body = parseCurlConfigBody(r.body);
+    assertEqual(body.max_completion_tokens, 4096, "OpenAI o4-mini uses max_completion_tokens");
+    assertEqual(body.temperature, undefined, "OpenAI o4-mini omits unsupported temperature");
+
     // Anthropic
     payload.provider = "anthropic";
     payload.baseUrl = "https://api.anthropic.com";
+    payload.model = "claude-sonnet-4-6";
     payload.thinkingEnabled = false;
     r = Providers.buildCurlCommand("anthropic", payload, "sk-ant-test");
     assert(r !== null, "Anthropic request builds");
@@ -869,11 +884,51 @@ section("Providers.buildCurlCommand");
     // Anthropic with thinking enabled
     payload.thinkingEnabled = true;
     r = Providers.buildCurlCommand("anthropic", payload, "sk-ant-test");
-    assert(r.body.indexOf("interleaved-thinking") >= 0, "includes thinking beta header in config");
+    assert(r.body.indexOf("interleaved-thinking") < 0, "adaptive thinking omits deprecated beta header");
     body = parseCurlConfigBody(r.body);
     assert(body.thinking !== undefined, "body includes thinking config");
-    assertEqual(body.thinking.type, "enabled", "thinking type is enabled");
-    assert(body.thinking.budget_tokens > 0, "thinking budget set");
+    assertEqual(body.thinking.type, "adaptive", "4.6 models use adaptive thinking");
+    assertEqual(body.thinking.budget_tokens, undefined, "adaptive thinking omits manual budget");
+    assertEqual(body.thinking.display, "summarized", "adaptive thinking requests visible summaries");
+    assertEqual(body.temperature, undefined, "thinking omits incompatible temperature");
+
+    payload.model = "claude-opus-4-8";
+    r = Providers.buildCurlCommand("anthropic", payload, "sk-ant-test");
+    body = parseCurlConfigBody(r.body);
+    assertEqual(body.thinking.type, "adaptive", "Opus 4.8 uses its only supported thinking mode");
+    assertEqual(body.thinking.display, "summarized", "Opus 4.8 streams visible thinking summaries");
+    assert(r.body.indexOf("interleaved-thinking") < 0, "Opus 4.8 uses automatic interleaving without a header");
+
+    payload.model = "claude-fable-5";
+    payload.thinkingEnabled = false;
+    r = Providers.buildCurlCommand("anthropic", payload, "sk-ant-test");
+    body = parseCurlConfigBody(r.body);
+    assertEqual(body.thinking, undefined, "always-on Fable thinking needs no request configuration");
+    assertEqual(body.temperature, undefined, "always-on Fable thinking omits incompatible temperature");
+    payload.thinkingEnabled = true;
+
+    payload.model = "claude-opus-4-5";
+    r = Providers.buildCurlCommand("anthropic", payload, "sk-ant-test");
+    assert(r.body.indexOf("interleaved-thinking") >= 0, "Opus 4.5 includes required interleaved header");
+    body = parseCurlConfigBody(r.body);
+    assertEqual(body.thinking.type, "enabled", "Opus 4.5 retains manual thinking");
+    assert(body.thinking.budget_tokens >= 1024, "manual thinking respects minimum budget");
+    assert(body.thinking.budget_tokens < body.max_tokens, "manual budget stays below max_tokens");
+    assertEqual(body.temperature, undefined, "manual thinking omits incompatible temperature");
+
+    payload.model = "claude-haiku-4-5";
+    r = Providers.buildCurlCommand("anthropic", payload, "sk-ant-test");
+    assert(r.body.indexOf("interleaved-thinking") < 0, "Haiku 4.5 omits unsupported interleaved header");
+    body = parseCurlConfigBody(r.body);
+    assertEqual(body.thinking.type, "enabled", "Haiku 4.5 uses manual thinking");
+
+    payload.model = "claude-opus-4-5";
+    payload.max_tokens = 256;
+    r = Providers.buildCurlCommand("anthropic", payload, "sk-ant-test");
+    body = parseCurlConfigBody(r.body);
+    assertEqual(body.max_tokens, 1025, "manual thinking reserves room above its minimum budget");
+    assertEqual(body.thinking.budget_tokens, 1024, "small manual request uses minimum thinking budget");
+    payload.max_tokens = 4096;
 
     // Gemini
     payload.provider = "gemini";
@@ -893,6 +948,9 @@ section("Providers.buildCurlCommand");
     r = Providers.buildCurlCommand("custom", payload, "custom-key");
     assert(r !== null, "Custom provider builds");
     assertEqual(r.error, undefined, "Custom HTTPS provider has no transport error");
+    body = parseCurlConfigBody(r.body);
+    assertEqual(body.max_tokens, 4096, "custom provider retains generic max_tokens contract");
+    assertEqual(body.max_completion_tokens, undefined, "custom provider does not inherit OpenAI o-series token field");
 
     // Key sanitization — dirty key still builds, no control chars leak
     r = Providers.buildCurlCommand("openai", payload, "sk-test\r\n\x00injected");
@@ -1033,7 +1091,7 @@ section("Providers — unlimited tokens");
 (function() {
     var payload = {
         provider: "anthropic", baseUrl: "https://api.anthropic.com",
-        model: "claude-3", messages: [{ role: "user", content: "Hi" }],
+        model: "claude-opus-4-6", messages: [{ role: "user", content: "Hi" }],
         temperature: 1.0, max_tokens: 0, stream: true, timeout: 60,
         thinkingEnabled: false
     };
@@ -1041,8 +1099,21 @@ section("Providers — unlimited tokens");
     var body = parseCurlConfigBody(r.body);
     assertEqual(body.max_tokens, 128000, "Anthropic uses 128000 when unlimited (max_tokens=0)");
 
+    payload.model = "claude-haiku-4-5";
+    r = Providers.buildCurlCommand("anthropic", payload, "sk-test");
+    body = parseCurlConfigBody(r.body);
+    assertEqual(body.max_tokens, 64000, "Anthropic unlimited mode respects Haiku 4.5 output cap");
+
+    payload.model = "claude-opus-4-6";
+    payload.max_tokens = 200000;
+    r = Providers.buildCurlCommand("anthropic", payload, "sk-test");
+    body = parseCurlConfigBody(r.body);
+    assertEqual(body.max_tokens, 128000, "Anthropic explicit max is clamped to the model output cap");
+
     payload.provider = "openai";
     payload.baseUrl = "https://api.openai.com";
+    payload.model = "gpt-4.1";
+    payload.max_tokens = 0;
     r = Providers.buildCurlCommand("openai", payload, "sk-test");
     body = parseCurlConfigBody(r.body);
     assertEqual(body.max_tokens, undefined, "OpenAI omits max_tokens when 0");
@@ -2049,16 +2120,23 @@ section("Providers.getModelList");
     assert(Array.isArray(openai), "openai returns an array");
     assert(openai.length > 0, "openai has models");
     assert(openai.indexOf("gpt-5.4") >= 0, "openai includes gpt-5.4");
+    assert(openai.indexOf("gpt-5.4-pro") < 0, "openai excludes Responses-only gpt-5.4-pro");
+    assert(openai.indexOf("o3-pro") < 0, "openai excludes Responses-only o3-pro");
 
     var anthropic = Providers.getModelList("anthropic");
     assert(Array.isArray(anthropic), "anthropic returns an array");
     assert(anthropic.length > 0, "anthropic has models");
+    assert(anthropic.indexOf("claude-fable-5") >= 0, "anthropic includes current Claude Fable 5");
+    assert(anthropic.indexOf("claude-opus-4-8") >= 0, "anthropic includes current Claude Opus 4.8");
+    assert(anthropic.indexOf("claude-sonnet-5") >= 0, "anthropic includes current Claude Sonnet 5");
     assert(anthropic.indexOf("claude-sonnet-4-6") >= 0, "anthropic includes claude-sonnet-4-6");
 
     var gemini = Providers.getModelList("gemini");
     assert(Array.isArray(gemini), "gemini returns an array");
     assert(gemini.length > 0, "gemini has models");
     assert(gemini.indexOf("gemini-2.5-flash") >= 0, "gemini includes gemini-2.5-flash");
+    assert(gemini.indexOf("gemini-3.1-flash-lite") >= 0, "gemini includes Flash-Lite GA replacement");
+    assert(gemini.indexOf("gemini-3.1-flash-lite-preview") < 0, "gemini excludes shut-down Flash-Lite preview");
 
     var ollama = Providers.getModelList("ollama");
     assert(Array.isArray(ollama), "ollama returns an array");
