@@ -18,6 +18,9 @@ PanelWindow {
     property Component content: null
     property real gap: 0
     property bool panelOnLeft: false
+    property real screenWidth: modelData ? Number(modelData.width) : 0
+
+    property real _lastValidScreenWidth: 0
 
     signal opened()
 
@@ -38,6 +41,28 @@ PanelWindow {
     function toggle() {
         if (isVisible) hide();
         else show();
+    }
+
+    function _rememberScreenWidth() {
+        var width = Number(screenWidth);
+        if (isFinite(width) && width > 0)
+            _lastValidScreenWidth = width;
+    }
+
+    function _boundedAlignedWidth(preferredWidth, availableWidth, scale) {
+        var preferred = Number(preferredWidth);
+        if (!isFinite(preferred) || preferred < 0) preferred = 0;
+
+        var available = Number(availableWidth);
+        var hasBound = isFinite(available) && available > 0;
+        var bounded = hasBound ? Math.min(preferred, available) : preferred;
+        var safeScale = Number(scale);
+        if (!isFinite(safeScale) || safeScale <= 0) safeScale = 1;
+
+        var aligned = Math.round(bounded * safeScale) / safeScale;
+        if (hasBound && aligned > available)
+            aligned = Math.floor(available * safeScale) / safeScale;
+        return Math.max(0, aligned);
     }
 
     function _syncWindowEdge() {
@@ -62,10 +87,33 @@ PanelWindow {
     anchors.right: true
 
     onPanelOnLeftChanged: _syncWindowEdge()
-    Component.onCompleted: _syncWindowEdge()
+    onScreenWidthChanged: _rememberScreenWidth()
+    Component.onCompleted: {
+        _syncWindowEdge();
+        _rememberScreenWidth();
+    }
 
-    readonly property real activeWidth: expandable && expanded ? expandedWidth : panelWidth
-    implicitWidth: expandable ? expandedWidth + gap : panelWidth + gap
+    readonly property real _safeGap: {
+        var value = Number(gap);
+        return isFinite(value) && value > 0 ? value : 0;
+    }
+    readonly property real _effectiveScreenWidth: {
+        var width = Number(screenWidth);
+        if (isFinite(width) && width > 0) return width;
+        return _lastValidScreenWidth;
+    }
+    readonly property real preferredActiveWidth: expandable && expanded ? expandedWidth : panelWidth
+    readonly property real activeWidth: {
+        var preferred = Number(preferredActiveWidth);
+        if (!isFinite(preferred) || preferred < 0) preferred = 0;
+        if (_effectiveScreenWidth <= 0) return preferred;
+        return Math.min(preferred, Math.max(0, _effectiveScreenWidth - _safeGap));
+    }
+    readonly property real _preferredSurfaceWidth: {
+        var preferred = expandable ? expandedWidth : panelWidth;
+        return Number(preferred) + _safeGap;
+    }
+    implicitWidth: _boundedAlignedWidth(_preferredSurfaceWidth, _effectiveScreenWidth, dpr)
     implicitHeight: modelData ? modelData.height : 800
 
     WlrLayershell.namespace: "ephemera:panel"
@@ -74,7 +122,9 @@ PanelWindow {
     WlrLayershell.keyboardFocus: isVisible ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
 
     readonly property real dpr: CompositorService.getScreenScale(root.screen)
-    readonly property real alignedWidth: Theme.px(activeWidth + gap, dpr)
+    readonly property real alignedWidth: _boundedAlignedWidth(
+        activeWidth + _safeGap, _effectiveScreenWidth, dpr
+    )
 
     mask: Region {
         item: Rectangle {
@@ -145,8 +195,8 @@ PanelWindow {
                 anchors.fill: parent
                 anchors.topMargin: root.gap
                 anchors.bottomMargin: root.gap
-                anchors.rightMargin: panelOnLeft ? 0 : root.gap
-                anchors.leftMargin: panelOnLeft ? root.gap : 0
+                anchors.rightMargin: panelOnLeft ? 0 : root._safeGap
+                anchors.leftMargin: panelOnLeft ? root._safeGap : 0
 
                 Rectangle {
                     anchors.fill: parent

@@ -1976,10 +1976,10 @@ section("Providers.getModelList");
 })();
 
 // ═════════════════════════════════════════════════════════════════
-// EphemeraPanel side-switch regression tests
+// EphemeraPanel geometry regression tests
 // ═════════════════════════════════════════════════════════════════
 
-section("EphemeraPanel rapid side switching");
+section("EphemeraPanel bounded geometry and rapid side switching");
 
 (function() {
     var panelSource = fs.readFileSync(
@@ -1989,10 +1989,17 @@ section("EphemeraPanel rapid side switching");
     var functionMatch = panelSource.match(
         /function _syncWindowEdge\(\) \{([\s\S]*?)\n    \}\n\n    visible:/
     );
+    var widthFunctionMatch = panelSource.match(
+        /function _boundedAlignedWidth\(preferredWidth, availableWidth, scale\) \{([\s\S]*?)\n    \}/
+    );
     assert(!!functionMatch, "window edge synchronizer remains testable");
-    if (!functionMatch) return;
+    assert(!!widthFunctionMatch, "screen width bound remains testable");
+    if (!functionMatch || !widthFunctionMatch) return;
 
     var runEdgeSync = new Function("root", "panelOnLeft", functionMatch[1]);
+    var boundedAlignedWidth = new Function(
+        "preferredWidth", "availableWidth", "scale", widthFunctionMatch[1]
+    );
     var left = false;
     var right = true;
     var exposedOppositeEdges = false;
@@ -2023,9 +2030,23 @@ section("EphemeraPanel rapid side switching");
     }
 
     assert(!exposedOppositeEdges, "40 rapid toggles never expose both horizontal edges");
+    assertEqual(boundedAlignedWidth(486, 1200, 1), 486,
+        "wide screens preserve the collapsed preferred width and gap");
+    assertEqual(boundedAlignedWidth(966, 1200, 1), 966,
+        "wide screens preserve the expanded preferred width and gap");
+    assertEqual(boundedAlignedWidth(486, 420, 1), 420,
+        "small screens bound the collapsed surface");
+    assertEqual(boundedAlignedWidth(966, 420, 1), 420,
+        "small screens bound the expanded surface");
+    assertEqual(boundedAlignedWidth(399.9, 399.9, 1.25), 399.2,
+        "device-pixel alignment never rounds beyond the screen edge");
+    assertEqual(boundedAlignedWidth(486, 0, 0), 486,
+        "zero screen and scale values safely retain preferred geometry");
+    assertEqual(boundedAlignedWidth(486, null, 1), 486,
+        "null screen dimensions safely retain preferred geometry");
     assert(
         panelSource.indexOf("onPanelOnLeftChanged: _syncWindowEdge()") >= 0
-            && panelSource.indexOf("Component.onCompleted: _syncWindowEdge()") >= 0,
+            && panelSource.indexOf("_syncWindowEdge();") >= 0,
         "side changes and initial construction both synchronize the layer-shell edge"
     );
     assert(
