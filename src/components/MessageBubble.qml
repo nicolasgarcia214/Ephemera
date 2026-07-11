@@ -1,7 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
-import Quickshell
 import qs.Common
 import qs.Widgets
 import "../lib/Markdown.js" as Markdown
@@ -22,6 +21,8 @@ Item {
     signal regenerateRequested
     signal variantChangeRequested(int newIndex)
     signal editRequested(string newText)
+    signal copyRequested
+    property string copyStatus: ""
     property bool _editing: false
     property string _editText: ""
     property real streamStartTime: 0
@@ -283,24 +284,21 @@ Item {
                     id: copyBtn
                     visible: !root.isUser && root.status === "ok"
                     opacity: hoverHandler.hovered ? 1.0 : 0.4
-                    iconName: _copied ? "check" : "content_copy"
+                    iconName: root.copyStatus === "copied" ? "check"
+                              : root.copyStatus === "error" ? "error"
+                              : "content_copy"
                     buttonSize: 24
                     iconSize: 14
                     backgroundColor: Theme.withAlpha(Theme.surfaceContainer, 0)
-                    iconColor: _copied ? Theme.success : Theme.surfaceVariantText
-                    tooltipText: _copied ? "Copied!" : "Copy"
-                    property bool _copied: false
-                    onClicked: {
-                        Quickshell.execDetached(["wl-copy", "--", root.text]);
-                        _copied = true;
-                        copyResetTimer.start();
-                    }
-
-                    Timer {
-                        id: copyResetTimer
-                        interval: 1500
-                        onTriggered: copyBtn._copied = false
-                    }
+                    iconColor: root.copyStatus === "copied" ? Theme.success
+                               : root.copyStatus === "error" ? Theme.error
+                               : Theme.surfaceVariantText
+                    tooltipText: root.copyStatus === "copied" ? "Copied!"
+                                 : root.copyStatus === "error" ? "Copy failed"
+                                 : root.copyStatus === "pending" ? "Copying…"
+                                 : "Copy"
+                    enabled: root.copyStatus !== "pending"
+                    onClicked: root.copyRequested()
 
                     Behavior on opacity {
                         NumberAnimation { duration: 150; easing.type: Easing.OutCubic }

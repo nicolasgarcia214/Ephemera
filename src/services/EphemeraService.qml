@@ -30,6 +30,7 @@ Item {
     property alias lastRequestFailed: streamingService.lastRequestFailed
     property alias lastHttpStatus: streamingService.lastHttpStatus
     readonly property bool conversationExportBusy: streamingService.exportBusy
+    property string _messageCopyFeedbackId: ""
     readonly property bool mcpToolApprovalPending: streamingService.toolApprovalPending
     readonly property string mcpPendingToolName: streamingService.pendingToolName
     readonly property string mcpPendingToolDescription: streamingService.pendingToolDescription
@@ -41,6 +42,7 @@ Item {
     property int _requestSnapshotGeneration: -1
     signal conversationExportSucceeded(string exportId, string exportKind, string target)
     signal conversationExportFailed(string exportId, string exportKind, string message)
+    signal messageCopyFailed(string messageId, string message)
 
     // --- Persistence (opt-in) ---
     property bool persistChat: false
@@ -180,6 +182,8 @@ Item {
             root.conversationExportSucceeded(exportId, exportKind, target)
         onExportFailed: (exportId, exportKind, message) =>
             root.conversationExportFailed(exportId, exportKind, message)
+        onMessageCopySucceeded: messageId => root._finishMessageCopy(messageId, true, "")
+        onMessageCopyFailed: (messageId, message) => root._finishMessageCopy(messageId, false, message)
         mcpConnected: mcpServiceInstance.isConnected
         mcpTools: mcpServiceInstance.tools
         toolCallsAllowed: root.mcpToolRequestsAllowed
@@ -851,6 +855,49 @@ Item {
         streamingService.exportToFile(text, Quickshell.env("HOME"), filename);
     }
 
+    function copyMessage(msgId) {
+        var idx = findIndexById(msgId);
+        if (idx < 0)
+            return false;
+        if (streamingService.exportBusy) {
+            messageCopyFailed(
+                msgId, "Another clipboard or file operation is already in progress.");
+            return false;
+        }
+
+        if (_messageCopyFeedbackId && _messageCopyFeedbackId !== msgId)
+            _setMessageCopyStatus(_messageCopyFeedbackId, "");
+        _messageCopyFeedbackTimer.stop();
+        _messageCopyFeedbackId = msgId;
+        _setMessageCopyStatus(msgId, "pending");
+        return streamingService.copyMessageToClipboard(
+            msgId, messagesModel.get(idx).content || "");
+    }
+
+    function _finishMessageCopy(msgId, succeeded, message) {
+        _setMessageCopyStatus(msgId, succeeded ? "copied" : "error");
+        _messageCopyFeedbackId = msgId;
+        _messageCopyFeedbackTimer.restart();
+        if (!succeeded)
+            messageCopyFailed(msgId, message);
+    }
+
+    function _setMessageCopyStatus(msgId, copyStatus) {
+        var idx = findIndexById(msgId);
+        if (idx >= 0)
+            messagesModel.setProperty(idx, "copyStatus", copyStatus);
+    }
+
+    Timer {
+        id: _messageCopyFeedbackTimer
+        interval: 1500
+        repeat: false
+        onTriggered: {
+            root._setMessageCopyStatus(root._messageCopyFeedbackId, "");
+            root._messageCopyFeedbackId = "";
+        }
+    }
+
     // ─── Message helpers ───────────────────────────────────────────
 
     function _createMessageEntry(role, content, id, timestamp, status, modelName) {
@@ -858,7 +905,8 @@ Item {
             role: role, content: content || "", thinking: "",
             id: id, timestamp: timestamp, status: status || "ok",
             variantIndex: 0, variantCount: 1,
-            modelName: modelName || "", streamStats: "", requestPayload: ""
+            modelName: modelName || "", streamStats: "", requestPayload: "",
+            copyStatus: ""
         };
     }
 

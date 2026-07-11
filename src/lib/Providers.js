@@ -261,7 +261,11 @@ function buildCurlCommand(provider, payload, apiKey) {
     var timeout = payload.timeout || 30;
     // Command has no secrets — URL, headers, and body all go through stdin config
     var cmd = [
-        "curl", "-K", "-", "-N", "-sS", "--no-buffer", "--show-error",
+        "curl", "-q", "-K", "-",
+        "--proto", "=http,https",
+        "--proto-redir", "=http,https",
+        "--max-redirs", "0",
+        "-N", "-sS", "--no-buffer", "--show-error",
         "--connect-timeout", "5",
         "--max-time", String(timeout),
         "-w", "\\nEPH_STATUS:%{http_code}\\n"

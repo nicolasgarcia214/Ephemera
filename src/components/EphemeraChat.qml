@@ -39,6 +39,10 @@ Item {
         function onConversationExportFailed(exportId, exportKind, message) {
             chatToast.show(message);
         }
+
+        function onMessageCopyFailed(messageId, message) {
+            chatToast.show(message);
+        }
     }
 
     onVisibleChanged: {
@@ -131,6 +135,7 @@ Item {
                 onRegenerateRequested: aiService.regenerate()
                 onVariantChangeRequested: (msgId, newIndex) => aiService.switchVariant(msgId, newIndex)
                 onEditRequested: (msgId, newText) => aiService.editAndRegenerate(msgId, newText)
+                onCopyRequested: msgId => aiService.copyMessage(msgId)
             }
 
             // Missing API key banner

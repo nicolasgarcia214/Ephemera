@@ -925,9 +925,19 @@ section("Providers.buildCurlCommand");
     };
     var r = Providers.buildCurlCommand("ollama", payload, "");
     assert(r !== null, "Ollama request builds without key");
-    assert(r.cmd.indexOf("curl") >= 0, "command starts with curl");
+    assertEqual(r.cmd[0], "curl", "command starts with curl");
+    assertDeepEqual(r.cmd.slice(0, 4), ["curl", "-q", "-K", "-"],
+        "-q is the first curl option so user curlrc is ignored before stdin config");
     assert(r.cmd.indexOf("-K") >= 0, "uses -K flag for config-from-stdin");
     assert(r.cmd.indexOf("--max-time") >= 0, "includes timeout");
+    assertEqual(r.cmd[r.cmd.indexOf("--proto") + 1], "=http,https",
+        "curl allows only HTTP and HTTPS request protocols");
+    assertEqual(r.cmd[r.cmd.indexOf("--proto-redir") + 1], "=http,https",
+        "curl redirect protocol guard excludes non-HTTP schemes");
+    assertEqual(r.cmd[r.cmd.indexOf("--max-redirs") + 1], "0",
+        "curl redirects are explicitly disabled");
+    assert(r.cmd.indexOf("--location") < 0 && r.cmd.indexOf("-L") < 0,
+        "curl command never enables redirect following");
     // Body is now in curl config, not direct JSON
     assert(r.body.indexOf('url = "') >= 0, "config contains url directive");
     assert(r.body.indexOf('data = "') >= 0, "config contains data directive");
@@ -2512,6 +2522,14 @@ section("Conversation export lifecycle wiring");
         path.join(__dirname, "..", "src/components/EphemeraChat.qml"),
         "utf8"
     );
+    var bubbleSource = fs.readFileSync(
+        path.join(__dirname, "..", "src/components/MessageBubble.qml"),
+        "utf8"
+    );
+    var listSource = fs.readFileSync(
+        path.join(__dirname, "..", "src/components/MessageList.qml"),
+        "utf8"
+    );
 
     assert(
         streamingSource.indexOf('execDetached(["wl-copy"') < 0
@@ -2519,13 +2537,27 @@ section("Conversation export lifecycle wiring");
         "conversation clipboard export uses a managed stdin process"
     );
     assert(
+        bubbleSource.indexOf("execDetached") < 0
+            && bubbleSource.indexOf("signal copyRequested") >= 0
+            && listSource.indexOf("signal copyRequested(string msgId)") >= 0
+            && chatSource.indexOf("onCopyRequested: msgId => aiService.copyMessage(msgId)") >= 0,
+        "message components emit signals instead of launching clipboard processes"
+    );
+    assert(
+        streamingSource.indexOf("function copyMessageToClipboard") >= 0
+            && streamingSource.indexOf("messageCopySucceeded(clipboardIdentity)") >= 0
+            && streamingSource.indexOf("messageCopyFailed(clipboardIdentity") >= 0
+            && coordinatorSource.indexOf('messagesModel.setProperty(idx, "copyStatus", copyStatus)') >= 0,
+        "message clipboard lifecycle and feedback state remain service/coordinator-owned"
+    );
+    assert(
         streamingSource.indexOf('"-m", "0600", "/dev/stdin", filename') >= 0,
         "file export preserves stdin transport and mode 0600"
     );
     assert(
         streamingSource.indexOf("readonly property bool exportBusy") >= 0
-            && streamingSource.indexOf("Another conversation export is already in progress.") >= 0,
-        "overlapping conversation exports are rejected with explicit feedback"
+            && streamingSource.indexOf("Another clipboard or file operation is already in progress.") >= 0,
+        "overlapping message and conversation operations are rejected with explicit feedback"
     );
     assert(
         coordinatorSource.indexOf("signal conversationExportSucceeded") >= 0
@@ -2546,7 +2578,9 @@ section("Conversation export lifecycle wiring");
         chatSource.indexOf("onExportRequested: aiService.exportConversation()") >= 0
             && chatSource.indexOf("onExportFileRequested: aiService.exportConversationToFile()") >= 0
             && chatSource.indexOf("function onConversationExportSucceeded") >= 0
-            && chatSource.indexOf("function onConversationExportFailed") >= 0,
+            && chatSource.indexOf("function onConversationExportFailed") >= 0
+            && bubbleSource.indexOf('root.copyStatus === "copied" ? "check"') >= 0
+            && bubbleSource.indexOf("onClicked: root.copyRequested()") >= 0,
         "chat toasts are driven by confirmed success and failure signals"
     );
 })();

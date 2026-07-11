@@ -94,6 +94,8 @@ Item {
     property string _activeExportId: ""
     property string _activeExportKind: ""
     property string _activeExportTarget: ""
+    property string _activeClipboardPurpose: ""
+    property string _activeClipboardIdentity: ""
     property string _exportPendingBody: ""
     property var _clipboardExportCommand: ["wl-copy", "--"]
     property var _fileExportCommand: ["install"]
@@ -112,6 +114,8 @@ Item {
     signal mcpToolCallCancellationRequested(var callId, string reason)
     signal exportSucceeded(string exportId, string exportKind, string target)
     signal exportFailed(string exportId, string exportKind, string message)
+    signal messageCopySucceeded(string messageId)
+    signal messageCopyFailed(string messageId, string message)
 
     // --- Public API ---
 
@@ -355,7 +359,16 @@ Item {
 
     function exportToClipboard(markdownText) {
         return _beginExport("clipboard", "clipboard", markdownText,
-                            _clipboardExportCommand, clipboardWriter);
+                            _clipboardExportCommand, clipboardWriter,
+                            "conversation", "");
+    }
+
+    function copyMessageToClipboard(messageId, messageText) {
+        if (!messageId)
+            return false;
+        return _beginExport("clipboard", "clipboard", messageText,
+                            _clipboardExportCommand, clipboardWriter,
+                            "message", messageId);
     }
 
     function exportToFile(markdownText, homeDir, filename) {
@@ -366,18 +379,24 @@ Item {
                             ]), exportFileWriter);
     }
 
-    function _beginExport(exportKind, target, body, command, process) {
+    function _beginExport(exportKind, target, body, command, process,
+                          clipboardPurpose, clipboardIdentity) {
         _exportGeneration++;
         var exportId = exportKind + "-" + _exportGeneration;
         if (exportBusy) {
-            exportFailed(exportId, exportKind,
-                         "Another conversation export is already in progress.");
+            var busyMessage = "Another clipboard or file operation is already in progress.";
+            if (exportKind === "clipboard" && clipboardPurpose === "message")
+                messageCopyFailed(clipboardIdentity, busyMessage);
+            else
+                exportFailed(exportId, exportKind, busyMessage);
             return false;
         }
 
         _activeExportId = exportId;
         _activeExportKind = exportKind;
         _activeExportTarget = target;
+        _activeClipboardPurpose = clipboardPurpose || "";
+        _activeClipboardIdentity = clipboardIdentity || "";
         _exportPendingBody = body;
         process.command = command;
         process.stdinEnabled = true;
@@ -397,26 +416,43 @@ Item {
 
         var exportId = _activeExportId;
         var target = _activeExportTarget;
+        var clipboardPurpose = _activeClipboardPurpose;
+        var clipboardIdentity = _activeClipboardIdentity;
         _activeExportId = "";
         _activeExportKind = "";
         _activeExportTarget = "";
+        _activeClipboardPurpose = "";
+        _activeClipboardIdentity = "";
         _exportPendingBody = "";
 
         if (failedToStart) {
             var commandName = exportKind === "clipboard" ? "wl-copy" : "install";
-            exportFailed(exportId, exportKind,
-                         "Could not start " + exportKind + " export. Make sure "
-                         + commandName + " is installed and available in PATH.");
+            var startMessage = "Could not start "
+                + (clipboardPurpose === "message" ? "message copy" : exportKind + " export")
+                + ". Make sure " + commandName + " is installed and available in PATH.";
+            if (clipboardPurpose === "message")
+                messageCopyFailed(clipboardIdentity, startMessage);
+            else
+                exportFailed(exportId, exportKind, startMessage);
         } else if (exitCode !== 0) {
-            exportFailed(exportId, exportKind,
-                         (exportKind === "clipboard"
-                          ? "Could not copy conversation to the clipboard"
-                          : "Could not save the conversation")
-                         + " (exit code " + exitCode + ").");
+            var failureMessage = (clipboardPurpose === "message"
+                                  ? "Could not copy message to the clipboard"
+                                  : exportKind === "clipboard"
+                                    ? "Could not copy conversation to the clipboard"
+                                    : "Could not save the conversation")
+                + " (exit code " + exitCode + ").";
+            if (clipboardPurpose === "message")
+                messageCopyFailed(clipboardIdentity, failureMessage);
+            else
+                exportFailed(exportId, exportKind, failureMessage);
         } else {
-            if (exportKind === "file")
-                lastExportedFile = target;
-            exportSucceeded(exportId, exportKind, target);
+            if (clipboardPurpose === "message") {
+                messageCopySucceeded(clipboardIdentity);
+            } else {
+                if (exportKind === "file")
+                    lastExportedFile = target;
+                exportSucceeded(exportId, exportKind, target);
+            }
         }
     }
 
