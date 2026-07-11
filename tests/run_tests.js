@@ -2827,6 +2827,36 @@ section("Conversation export lifecycle wiring");
     );
 })();
 
+// ═════════════════════════════════════════════════════════════════
+// DMS injected-property contract
+// ═════════════════════════════════════════════════════════════════
+
+section("EphemeraDaemon DMS injected properties");
+
+(function() {
+    var daemonSource = fs.readFileSync(
+        path.join(__dirname, "..", "EphemeraDaemon.qml"),
+        "utf8"
+    );
+
+    ["pluginData", "pluginService", "pluginId"].forEach(function(name) {
+        var rootDeclaration = new RegExp(
+            "^ {4}(?:(?:default|required|readonly) +)*property\\s+[^\\n]+\\s+"
+                + name + "\\s*(?::|$)",
+            "m"
+        );
+        assert(
+            !rootDeclaration.test(daemonSource),
+            "daemon root does not shadow injected " + name
+        );
+    });
+
+    assert(
+        /EphemeraService\s*\{[\s\S]*?pluginId\s*:\s*root\.pluginId\b/.test(daemonSource),
+        "coordinator receives the DMS-injected pluginId"
+    );
+})();
+
 // ─── Summary ───────────────────────────────────────────────────
 
 console.log("\n" + "=".repeat(50));
