@@ -35,6 +35,8 @@ Item {
 
     // --- Persistence (opt-in) ---
     property bool persistChat: false
+    readonly property string _chatStateKey: "chatState"
+    readonly property int _chatStateVersion: 1
 
     // --- Provider settings ---
     property string _provider: "ollama"
@@ -295,7 +297,11 @@ Item {
         else
             mcpServiceInstance.disconnectFromServer();
         unlimitedTokens = PluginService.loadPluginData(pluginId, "unlimitedTokens", false) === true;
-        persistChat = PluginService.loadPluginData(pluginId, "persistChat", false) === true;
+        var nextPersistChat = PluginService.loadPluginData(
+            pluginId, "persistChat", false) === true;
+        if (!nextPersistChat && (!_settingsLoaded || persistChat))
+            _deletePersistedChat();
+        persistChat = nextPersistChat;
         ollamaManager.ollamaIdleMinutes = Number(PluginService.loadPluginData(pluginId, "ollamaIdleMinutes", 5)) || 5;
 
         var range = Providers.getTemperatureRange(provider);
@@ -477,7 +483,39 @@ Item {
         }
     }
 
-    // ─── Chat (ephemeral, in-memory only) ──────────────────────────
+    // ─── Chat state ────────────────────────────────────────────────
+
+    function setPersistChat(enabled) {
+        var next = enabled === true;
+        if (!next)
+            _chatSaveDebounce.stop();
+        persistChat = next;
+        saveSettingValue("persistChat", next);
+        if (next)
+            saveChatHistory();
+        else
+            _deletePersistedChat();
+    }
+
+    function _clearLegacyChatData() {
+        var history = PluginService.loadPluginData(pluginId, "chatHistory", "");
+        var variants = PluginService.loadPluginData(pluginId, "chatVariants", "");
+        if (history === "" && variants === "") return;
+
+        // Legacy cleanup emits pluginDataChanged synchronously. Suppress a
+        // settings reload until both halves have been removed.
+        _settingsReloadDebounce.restart();
+        if (history !== "")
+            PluginService.savePluginData(pluginId, "chatHistory", "");
+        if (variants !== "")
+            PluginService.savePluginData(pluginId, "chatVariants", "");
+    }
+
+    function _deletePersistedChat() {
+        _chatSaveDebounce.stop();
+        PluginService.clearPluginState(pluginId);
+        _clearLegacyChatData();
+    }
 
     function clearChat() {
         streamingService.reset();
@@ -485,10 +523,7 @@ Item {
         messageIndexMap = ({});
         variantStore = ({});
         lastUserText = "";
-        if (persistChat) {
-            PluginService.savePluginData(pluginId, "chatHistory", "");
-            PluginService.savePluginData(pluginId, "chatVariants", "");
-        }
+        _deletePersistedChat();
     }
 
     function saveChatHistory() {
@@ -509,8 +544,11 @@ Item {
                 modelName: m.modelName || ""
             });
         }
-        PluginService.savePluginData(pluginId, "chatHistory", JSON.stringify(msgs));
-        PluginService.savePluginData(pluginId, "chatVariants", JSON.stringify(variantStore));
+        PluginService.savePluginState(pluginId, _chatStateKey, {
+            version: _chatStateVersion,
+            messages: msgs,
+            variants: JSON.parse(JSON.stringify(variantStore))
+        });
     }
 
     Timer {
@@ -520,43 +558,149 @@ Item {
         onTriggered: root._commitChatHistory()
     }
 
+    function _isSafeStateKey(value) {
+        return typeof value === "string" && value.length > 0
+            && value !== "__proto__" && value !== "constructor"
+            && value !== "prototype";
+    }
+
+    function _prepareChatState(payload) {
+        if (!payload || typeof payload !== "object" || Array.isArray(payload)
+                || payload.version !== _chatStateVersion
+                || !Array.isArray(payload.messages)
+                || !payload.variants || typeof payload.variants !== "object"
+                || Array.isArray(payload.variants))
+            return null;
+
+        var entries = [];
+        var indexMap = {};
+        var lastUser = "";
+        for (var i = 0; i < payload.messages.length; i++) {
+            var m = payload.messages[i];
+            if (!m || typeof m !== "object" || Array.isArray(m)
+                    || (m.role !== "user" && m.role !== "assistant")
+                    || typeof m.content !== "string"
+                    || !_isSafeStateKey(m.id)
+                    || indexMap[m.id] !== undefined
+                    || typeof m.timestamp !== "number" || !isFinite(m.timestamp)
+                    || (m.thinking !== undefined && typeof m.thinking !== "string")
+                    || (m.modelName !== undefined && typeof m.modelName !== "string"))
+                return null;
+
+            var status = m.status === undefined ? "ok" : m.status;
+            if (status !== "ok" && status !== "error" && status !== "streaming")
+                return null;
+            if (status === "streaming") status = "ok";
+
+            var variantIndex = m.variantIndex === undefined ? 0 : m.variantIndex;
+            var variantCount = m.variantCount === undefined ? 1 : m.variantCount;
+            if (typeof variantIndex !== "number" || !isFinite(variantIndex)
+                    || Math.floor(variantIndex) !== variantIndex || variantIndex < 0
+                    || typeof variantCount !== "number" || !isFinite(variantCount)
+                    || Math.floor(variantCount) !== variantCount || variantCount < 1
+                    || variantIndex >= variantCount)
+                return null;
+
+            var entry = _createMessageEntry(
+                m.role, m.content, m.id, m.timestamp, status, m.modelName || "");
+            entry.thinking = m.thinking || "";
+            entry.variantIndex = variantIndex;
+            entry.variantCount = variantCount;
+            entries.push(entry);
+            indexMap[m.id] = i;
+            if (m.role === "user") lastUser = m.content;
+        }
+
+        var variants = {};
+        for (var msgId in payload.variants) {
+            if (!Object.prototype.hasOwnProperty.call(payload.variants, msgId))
+                continue;
+            var values = payload.variants[msgId];
+            if (!_isSafeStateKey(msgId) || indexMap[msgId] === undefined
+                    || !Array.isArray(values)
+                    || values.length > maxVariantsPerMessage)
+                return null;
+            var copied = [];
+            for (var j = 0; j < values.length; j++) {
+                var variant = values[j];
+                if (!variant || typeof variant !== "object" || Array.isArray(variant)
+                        || typeof variant.content !== "string"
+                        || (variant.thinking !== undefined
+                            && typeof variant.thinking !== "string")
+                        || (variant.modelName !== undefined
+                            && typeof variant.modelName !== "string"))
+                    return null;
+                copied.push({
+                    content: variant.content,
+                    thinking: variant.thinking || "",
+                    modelName: variant.modelName || ""
+                });
+            }
+            variants[msgId] = copied;
+        }
+
+        return {
+            entries: entries,
+            indexMap: indexMap,
+            variants: variants,
+            lastUser: lastUser
+        };
+    }
+
+    function _applyPreparedChatState(prepared) {
+        messagesModel.clear();
+        for (var i = 0; i < prepared.entries.length; i++)
+            messagesModel.append(prepared.entries[i]);
+        messageIndexMap = prepared.indexMap;
+        variantStore = prepared.variants;
+        lastUserText = prepared.lastUser;
+    }
+
+    function _discardInvalidStoredChat(message) {
+        console.warn("Ephemera: failed to load chat history:", message);
+        _chatSaveDebounce.stop();
+        PluginService.clearPluginState(pluginId);
+        _clearLegacyChatData();
+    }
+
     function loadChatHistory() {
         if (!persistChat) return;
-        try {
-            var raw = PluginService.loadPluginData(pluginId, "chatHistory", "");
-            if (!raw) return;
-            var msgs = JSON.parse(raw);
-            if (!Array.isArray(msgs) || msgs.length === 0) return;
 
-            // Parse into temp arrays first — only commit on full success
-            var tempEntries = [];
-            var tempIndexMap = {};
-            var tempLastUser = lastUserText;
-            for (var i = 0; i < msgs.length; i++) {
-                var m = msgs[i];
-                var status = (m.status === "streaming") ? "ok" : (m.status || "ok");
-                var entry = _createMessageEntry(m.role, m.content, m.id, m.timestamp, status, m.modelName);
-                entry.thinking = m.thinking || "";
-                entry.variantIndex = m.variantIndex || 0;
-                entry.variantCount = m.variantCount || 1;
-                tempEntries.push(entry);
-                tempIndexMap[m.id] = i;
-                if (m.role === "user") tempLastUser = m.content;
+        var stored = PluginService.loadPluginState(pluginId, _chatStateKey, null);
+        if (stored !== null) {
+            var prepared = _prepareChatState(stored);
+            if (!prepared) {
+                _discardInvalidStoredChat("invalid versioned state");
+                return;
             }
+            _clearLegacyChatData();
+            _applyPreparedChatState(prepared);
+            return;
+        }
 
-            var tempVariants = {};
-            var vRaw = PluginService.loadPluginData(pluginId, "chatVariants", "");
-            if (vRaw) tempVariants = JSON.parse(vRaw);
+        var historyRaw = PluginService.loadPluginData(pluginId, "chatHistory", "");
+        var variantsRaw = PluginService.loadPluginData(pluginId, "chatVariants", "");
+        if (historyRaw === "" && variantsRaw === "") return;
 
-            // Commit to model
-            messagesModel.clear();
-            for (var j = 0; j < tempEntries.length; j++)
-                messagesModel.append(tempEntries[j]);
-            messageIndexMap = tempIndexMap;
-            variantStore = tempVariants;
-            lastUserText = tempLastUser;
+        try {
+            if (typeof historyRaw !== "string" || !historyRaw
+                    || typeof variantsRaw !== "string")
+                throw new Error("invalid legacy values");
+            var legacyPayload = {
+                version: _chatStateVersion,
+                messages: JSON.parse(historyRaw),
+                variants: variantsRaw ? JSON.parse(variantsRaw) : {}
+            };
+            var migrated = _prepareChatState(legacyPayload);
+            if (!migrated)
+                throw new Error("invalid legacy state");
+
+            // Promote the fully validated pair before erasing the legacy keys.
+            PluginService.savePluginState(pluginId, _chatStateKey, legacyPayload);
+            _clearLegacyChatData();
+            _applyPreparedChatState(migrated);
         } catch (e) {
-            console.warn("Ephemera: failed to load chat history:", e);
+            _discardInvalidStoredChat(e);
         }
     }
 
