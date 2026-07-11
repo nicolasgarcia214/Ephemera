@@ -24,6 +24,12 @@ ShellRoot {
         return true;
     }
 
+    function requestSettings(payload) {
+        var settings = JSON.parse(JSON.stringify(payload));
+        delete settings.messages;
+        return settings;
+    }
+
     function runChecks() {
         if (!check(service.ollamaUrl === "http://127.0.0.1:11434"
                 && service.baseUrl === "http://127.0.0.1:11434",
@@ -146,7 +152,111 @@ ShellRoot {
                 && service._loadingSettings === false,
                 "external Ollama URL change was inconsistent or reentrant")) return;
 
-        finish(true, "provider and Ollama endpoint changes are transactional and reentrancy-safe");
+        runRequestMutationChecks();
+    }
+
+    function runRequestMutationChecks() {
+        service.model = "snapshot-model";
+        service.systemPrompt = "snapshot prompt";
+        service.temperature = 0.25;
+        service.maxTokens = 2048;
+        service.unlimitedTokens = false;
+        service.maxTurns = 3;
+        service.timeout = 45;
+        service.ollamaThinkingMode = "low";
+        service.ollamaContextWindow = 8192;
+        service.thinkingEnabled = false;
+        service.setOllamaUrl("http://127.0.0.1:11434");
+
+        service._startStreaming("snapshot turn");
+        var streamId = service.activeStreamId;
+        var streamIndex = service.findIndexById(streamId);
+        var initialPayload = JSON.parse(
+            service.messagesModel.get(streamIndex).requestPayload);
+
+        service.model = "future-model";
+        service.systemPrompt = "future prompt";
+        service.temperature = 1.5;
+        service.maxTokens = 8192;
+        service.unlimitedTokens = true;
+        service.maxTurns = 1;
+        service.timeout = 90;
+        service.ollamaThinkingMode = "high";
+        service.ollamaContextWindow = 32768;
+        service.thinkingEnabled = true;
+        service.setOllamaUrl("http://localhost:11434");
+
+        // A replacement launch is the same coordinator path used by retries.
+        service._launchCurl();
+        var replacementPayload = JSON.parse(
+            service.messagesModel.get(streamIndex).requestPayload);
+        if (!check(JSON.stringify(replacementPayload) === JSON.stringify(initialPayload),
+                "active stream replacement adopted edited request settings")) return;
+
+        var context = service._activeStreamContext();
+        var continuationMessages = initialPayload.messages.concat([
+            { role: "assistant", content: "", tool_calls: [{
+                function: { name: "lookup", arguments: "{}" }
+            }] },
+            { role: "tool", tool_name: "lookup", content: "tool result" }
+        ]);
+        if (!check(service._launchCurlWithMessages(
+                    context.streamId, continuationMessages,
+                    context.provider, context.generation),
+                "active MCP continuation was rejected")) return;
+        var continuationPayload = JSON.parse(
+            service.messagesModel.get(streamIndex).requestPayload);
+        if (!check(JSON.stringify(requestSettings(continuationPayload))
+                    === JSON.stringify(requestSettings(initialPayload))
+                && JSON.stringify(continuationPayload.messages)
+                    === JSON.stringify(continuationMessages),
+                "MCP continuation rebuilt settings or lost evolving messages")) return;
+        if (!check(!service._launchCurlWithMessages(
+                    context.streamId, continuationMessages,
+                    context.provider, context.generation - 1),
+                "stale MCP generation was allowed to resume")) return;
+
+        service.switchVariant(streamId, 0);
+        if (!check(service.messagesModel.get(streamIndex).modelName === "snapshot-model",
+                "active response attribution adopted the edited model")) return;
+
+        service.cancel();
+        if (!check(service.model === "future-model"
+                && service.baseUrl === "http://localhost:11434"
+                && service.systemPrompt === "future prompt"
+                && service.temperature === 1.5
+                && service.maxTokens === 8192
+                && service.unlimitedTokens
+                && service.maxTurns === 1
+                && service.timeout === 90
+                && service.ollamaThinkingMode === "high"
+                && service.ollamaContextWindow === 32768
+                && service.thinkingEnabled,
+                "stream completion overwrote future request settings")) return;
+        nextRequestTimer.start();
+    }
+
+    function runNextRequestChecks() {
+        service._startStreaming("future turn");
+        var streamIndex = service.findIndexById(service.activeStreamId);
+        var payload = JSON.parse(
+            service.messagesModel.get(streamIndex).requestPayload);
+        if (!check(payload.model === "future-model"
+                && payload.baseUrl === "http://localhost:11434"
+                && payload.temperature === 1.5
+                && payload.max_tokens === 0
+                && payload.timeout === 90
+                && payload.ollamaThinkingMode === "high"
+                && payload.ollamaContextWindow === 32768
+                && payload.thinkingEnabled
+                && payload.messages.length === 2
+                && payload.messages[0].role === "system"
+                && payload.messages[0].content === "future prompt"
+                && payload.messages[1].role === "user"
+                && payload.messages[1].content === "future turn",
+                "next stream did not use the edited request settings")) return;
+        service.cancel();
+        finish(true, "provider transactions and per-stream request snapshots are isolated");
     }
 
     Component.onCompleted: Qt.callLater(runChecks)
@@ -163,6 +273,13 @@ ShellRoot {
         interval: 250
         repeat: false
         onTriggered: root.runExternalProviderChange()
+    }
+
+    Timer {
+        id: nextRequestTimer
+        interval: 50
+        repeat: false
+        onTriggered: root.runNextRequestChecks()
     }
 
     EphemeraService {
