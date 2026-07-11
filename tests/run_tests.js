@@ -889,12 +889,14 @@ section("Providers.buildCurlCommand");
     assert(body.thinking !== undefined, "body includes thinking config");
     assertEqual(body.thinking.type, "adaptive", "4.6 models use adaptive thinking");
     assertEqual(body.thinking.budget_tokens, undefined, "adaptive thinking omits manual budget");
+    assertEqual(body.thinking.display, "summarized", "adaptive thinking requests visible summaries");
     assertEqual(body.temperature, undefined, "thinking omits incompatible temperature");
 
     payload.model = "claude-opus-4-8";
     r = Providers.buildCurlCommand("anthropic", payload, "sk-ant-test");
     body = parseCurlConfigBody(r.body);
     assertEqual(body.thinking.type, "adaptive", "Opus 4.8 uses its only supported thinking mode");
+    assertEqual(body.thinking.display, "summarized", "Opus 4.8 streams visible thinking summaries");
     assert(r.body.indexOf("interleaved-thinking") < 0, "Opus 4.8 uses automatic interleaving without a header");
 
     payload.model = "claude-fable-5";
