@@ -115,7 +115,8 @@ Item {
     Component.onCompleted: {
         loadSettings();
         loadChatHistory();
-        ollamaManager.ping();
+        if (isOllama)
+            ollamaManager.ensureReady();
         keyringService.checkSecretToolAvailable();
     }
 
@@ -185,6 +186,7 @@ Item {
 
     OllamaManager {
         id: ollamaManager
+        active: root.isOllama
         ollamaUrl: root.ollamaUrl
         isStreaming: root.isStreaming
 

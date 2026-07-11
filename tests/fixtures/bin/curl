@@ -2,16 +2,33 @@
 set -eu
 
 endpoint=""
+endpoint_url=""
 for argument do
     case "$argument" in
         http://localhost:11434/api/tags|http://127.0.0.1:11434/api/tags)
             endpoint="tags"
+            endpoint_url=$argument
             ;;
         http://localhost:11434/api/ps|http://127.0.0.1:11434/api/ps)
             endpoint="ps"
+            endpoint_url=$argument
             ;;
     esac
 done
+
+if [ -n "${EPHEMERA_OLLAMA_LIFECYCLE_DIR:-}" ]; then
+    case "$endpoint_url" in
+        http://localhost:11434/api/tags)
+            printf 'PING_LOCAL\n' >> "$EPHEMERA_OLLAMA_LIFECYCLE_DIR/events"
+            if [ ! -f "$EPHEMERA_OLLAMA_LIFECYCLE_DIR/owned-running" ]; then
+                exit 7
+            fi
+            ;;
+        http://127.0.0.1:11434/api/tags)
+            printf 'PING_EXTERNAL\n' >> "$EPHEMERA_OLLAMA_LIFECYCLE_DIR/events"
+            ;;
+    esac
+fi
 
 case "$endpoint" in
     tags|ps)

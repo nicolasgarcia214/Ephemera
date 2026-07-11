@@ -2085,6 +2085,10 @@ section("Ollama process identity");
         path.join(__dirname, "..", "src/services/OllamaManager.qml"),
         "utf8"
     );
+    var serviceSource = fs.readFileSync(
+        path.join(__dirname, "..", "src/services/EphemeraService.qml"),
+        "utf8"
+    );
     assert(
         managerSource.indexOf("_ollamaPid = ollamaProcess.processId") >= 0,
         "Ollama shutdown tracks Quickshell's current processId property"
@@ -2092,6 +2096,18 @@ section("Ollama process identity");
     assert(
         managerSource.indexOf("ollamaProcess.pid") < 0,
         "Ollama manager does not read the obsolete undefined pid property"
+    );
+    assert(
+        serviceSource.indexOf("active: root.isOllama") >= 0,
+        "coordinator binds Ollama lifecycle activity to the selected provider"
+    );
+    assert(
+        serviceSource.indexOf("ollamaManager.ping();") < 0,
+        "coordinator has no unconditional Ollama startup probe"
+    );
+    assert(
+        managerSource.indexOf("onExited: exitCode => root._finishOwnedProcessExit()") >= 0,
+        "owned Ollama lifecycle is finalized from process exit"
     );
 })();
 
