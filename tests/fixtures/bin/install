@@ -1,0 +1,17 @@
+#!/bin/sh
+set -eu
+
+if [ "$#" -ne 4 ] || [ "$1" != "-m" ] || [ "$2" != "0600" ] \
+        || [ "$3" != "/dev/stdin" ]; then
+    printf 'unsafe file export invocation: %s\n' "$*" >&2
+    exit 64
+fi
+
+case "$4" in
+    *export-fail.md)
+        cat >/dev/null
+        exit 24
+        ;;
+esac
+
+exec /usr/bin/install "$@"

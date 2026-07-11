@@ -90,7 +90,14 @@ Item {
     readonly property int _backoffMaxMs: 30000
 
     // --- Export state ---
-    property string exportPendingBody: ""
+    property int _exportGeneration: 0
+    property string _activeExportId: ""
+    property string _activeExportKind: ""
+    property string _activeExportTarget: ""
+    property string _exportPendingBody: ""
+    property var _clipboardExportCommand: ["wl-copy", "--"]
+    property var _fileExportCommand: ["install"]
+    readonly property bool exportBusy: _activeExportId.length > 0
     property string lastExportedFile: ""
 
     // --- Signals to coordinator ---
@@ -103,6 +110,8 @@ Item {
     signal mcpToolCallRequested(string toolName, var toolArguments, var approvedContracts,
                                 string streamId, string streamProvider, int streamGeneration)
     signal mcpToolCallCancellationRequested(var callId, string reason)
+    signal exportSucceeded(string exportId, string exportKind, string target)
+    signal exportFailed(string exportId, string exportKind, string message)
 
     // --- Public API ---
 
@@ -345,15 +354,70 @@ Item {
     }
 
     function exportToClipboard(markdownText) {
-        Quickshell.execDetached(["wl-copy", "--", markdownText]);
+        return _beginExport("clipboard", "clipboard", markdownText,
+                            _clipboardExportCommand, clipboardWriter);
     }
 
     function exportToFile(markdownText, homeDir, filename) {
         // install -m 0600 sets restrictive permissions (owner-only read/write)
-        exportFileWriter.command = ["install", "-m", "0600", "/dev/stdin", filename];
-        exportPendingBody = markdownText;
-        exportFileWriter.stdinEnabled = true;
-        exportFileWriter.running = true;
+        return _beginExport("file", filename, markdownText,
+                            _fileExportCommand.concat([
+                                "-m", "0600", "/dev/stdin", filename
+                            ]), exportFileWriter);
+    }
+
+    function _beginExport(exportKind, target, body, command, process) {
+        _exportGeneration++;
+        var exportId = exportKind + "-" + _exportGeneration;
+        if (exportBusy) {
+            exportFailed(exportId, exportKind,
+                         "Another conversation export is already in progress.");
+            return false;
+        }
+
+        _activeExportId = exportId;
+        _activeExportKind = exportKind;
+        _activeExportTarget = target;
+        _exportPendingBody = body;
+        process.command = command;
+        process.stdinEnabled = true;
+        process.running = true;
+        return true;
+    }
+
+    function _writeExportBody(process) {
+        process.write(_exportPendingBody);
+        process.stdinEnabled = false;
+        _exportPendingBody = "";
+    }
+
+    function _finishExport(exportKind, exitCode, failedToStart) {
+        if (_activeExportKind !== exportKind)
+            return;
+
+        var exportId = _activeExportId;
+        var target = _activeExportTarget;
+        _activeExportId = "";
+        _activeExportKind = "";
+        _activeExportTarget = "";
+        _exportPendingBody = "";
+
+        if (failedToStart) {
+            var commandName = exportKind === "clipboard" ? "wl-copy" : "install";
+            exportFailed(exportId, exportKind,
+                         "Could not start " + exportKind + " export. Make sure "
+                         + commandName + " is installed and available in PATH.");
+        } else if (exitCode !== 0) {
+            exportFailed(exportId, exportKind,
+                         (exportKind === "clipboard"
+                          ? "Could not copy conversation to the clipboard"
+                          : "Could not save the conversation")
+                         + " (exit code " + exitCode + ").");
+        } else {
+            if (exportKind === "file")
+                lastExportedFile = target;
+            exportSucceeded(exportId, exportKind, target);
+        }
     }
 
     // --- Internal: stream processing ---
@@ -877,21 +941,36 @@ Item {
     }
 
     Process {
+        id: clipboardWriter
+        running: false
+        stdinEnabled: true
+
+        onRunningChanged: {
+            if (running && root._activeExportKind === "clipboard") {
+                root._writeExportBody(clipboardWriter);
+            } else if (!running && root._activeExportKind === "clipboard") {
+                // A failed QProcess start changes running back to false without
+                // emitting exited. Complete that request explicitly.
+                root._finishExport("clipboard", -1, true);
+            }
+        }
+
+        onExited: exitCode => root._finishExport("clipboard", exitCode, false)
+    }
+
+    Process {
         id: exportFileWriter
         running: false
         stdinEnabled: true
 
         onRunningChanged: {
-            if (running && root.exportPendingBody) {
-                exportFileWriter.write(root.exportPendingBody);
-                exportFileWriter.stdinEnabled = false;
-                root.exportPendingBody = "";
+            if (running && root._activeExportKind === "file") {
+                root._writeExportBody(exportFileWriter);
+            } else if (!running && root._activeExportKind === "file") {
+                root._finishExport("file", -1, true);
             }
         }
 
-        onExited: exitCode => {
-            if (exitCode === 0)
-                root.lastExportedFile = exportFileWriter.command[1];
-        }
+        onExited: exitCode => root._finishExport("file", exitCode, false)
     }
 }

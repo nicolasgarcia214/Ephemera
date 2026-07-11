@@ -1,0 +1,25 @@
+#!/bin/sh
+set -eu
+
+if [ "$#" -ne 1 ] || [ "$1" != "--" ]; then
+    printf 'clipboard export payload reached argv: %s\n' "$*" >&2
+    exit 64
+fi
+
+body=$(cat)
+case "$body" in
+    CLIPBOARD_SUCCESS)
+        exit 0
+        ;;
+    CLIPBOARD_FAIL)
+        exit 23
+        ;;
+    CLIPBOARD_SLOW)
+        sleep 1
+        exit 0
+        ;;
+    *)
+        printf 'unexpected clipboard export body\n' >&2
+        exit 65
+        ;;
+esac

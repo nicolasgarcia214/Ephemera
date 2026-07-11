@@ -29,6 +29,7 @@ Item {
     property alias apiOutputTokens: streamingService._apiOutputTokens
     property alias lastRequestFailed: streamingService.lastRequestFailed
     property alias lastHttpStatus: streamingService.lastHttpStatus
+    readonly property bool conversationExportBusy: streamingService.exportBusy
     readonly property bool mcpToolApprovalPending: streamingService.toolApprovalPending
     readonly property string mcpPendingToolName: streamingService.pendingToolName
     readonly property string mcpPendingToolDescription: streamingService.pendingToolDescription
@@ -38,6 +39,8 @@ Item {
     property string _requestSnapshotStreamId: ""
     property string _requestSnapshotProvider: ""
     property int _requestSnapshotGeneration: -1
+    signal conversationExportSucceeded(string exportId, string exportKind, string target)
+    signal conversationExportFailed(string exportId, string exportKind, string message)
 
     // --- Persistence (opt-in) ---
     property bool persistChat: false
@@ -173,6 +176,10 @@ Item {
         onStreamFinalized: (streamId, stats) => root._applyFinalize(streamId, stats)
         onStreamError: (streamId, message) => root._applyError(streamId, message)
         onStreamCancelled: (streamId, stats) => root._applyCancelled(streamId, stats)
+        onExportSucceeded: (exportId, exportKind, target) =>
+            root.conversationExportSucceeded(exportId, exportKind, target)
+        onExportFailed: (exportId, exportKind, message) =>
+            root.conversationExportFailed(exportId, exportKind, message)
         mcpConnected: mcpServiceInstance.isConnected
         mcpTools: mcpServiceInstance.tools
         toolCallsAllowed: root.mcpToolRequestsAllowed
@@ -842,7 +849,6 @@ Item {
         var text = buildConversationMarkdown();
         var filename = ChatExport.generateFilename(Quickshell.env("HOME"));
         streamingService.exportToFile(text, Quickshell.env("HOME"), filename);
-        return filename;
     }
 
     // ─── Message helpers ───────────────────────────────────────────
