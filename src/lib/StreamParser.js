@@ -144,17 +144,20 @@ function splitLines(chunk, buffer) {
  *
  * @param {string} jsonText - Raw JSON string (after stripping "data:" prefix if present).
  * @param {string} provider - Provider identifier ("anthropic"|"gemini"|"ollama"|"openai"|"custom").
- * @returns {{ content: string, thinking: string, done: boolean, outputTokens: number, toolCalls: Array|false, error: string }}
+ * @returns {{ content: string, thinking: string, done: boolean, outputTokens: number, usageReceived: boolean, openAiCompatible: boolean, toolCalls: Array|false, error: string }}
  *   content: assistant text delta (empty string if none).
  *   thinking: reasoning/thinking delta (empty string if none).
  *   done: true if the provider signaled stream completion.
  *   outputTokens: completion token count from API (0 if not present in this event).
+ *   usageReceived: true if this event carries a provider completion-token count.
+ *   openAiCompatible: true for OpenAI Chat Completions-shaped events.
  *   toolCalls: provider tool call requests, or false if this chunk has none.
  *   error: bounded user-facing provider error/refusal message, or an empty string.
  */
 function parseDelta(jsonText, provider) {
     var result = {
         content: "", thinking: "", done: false, outputTokens: 0,
+        usageReceived: false, openAiCompatible: false,
         toolCalls: false, error: ""
     };
     try {
@@ -175,8 +178,13 @@ function parseDelta(jsonText, provider) {
             if (data.type === "message_delta" && data.delta && data.delta.stop_reason)
                 result.done = true;
             // Anthropic sends usage.output_tokens on message_delta
-            if (data.type === "message_delta" && data.usage && data.usage.output_tokens > 0)
+            if (data.type === "message_delta" && data.usage
+                    && typeof data.usage.output_tokens === "number"
+                    && isFinite(data.usage.output_tokens)
+                    && data.usage.output_tokens >= 0) {
                 result.outputTokens = data.usage.output_tokens;
+                result.usageReceived = true;
+            }
         } else if (provider === "gemini") {
             var chunks = Array.isArray(data) ? data : [data];
             for (var ci = 0; ci < chunks.length; ci++) {
@@ -192,8 +200,12 @@ function parseDelta(jsonText, provider) {
                 }
                 // Gemini includes usageMetadata with token counts
                 var meta = chunks[ci].usageMetadata;
-                if (meta && meta.candidatesTokenCount > 0)
+                if (meta && typeof meta.candidatesTokenCount === "number"
+                        && isFinite(meta.candidatesTokenCount)
+                        && meta.candidatesTokenCount >= 0) {
                     result.outputTokens = meta.candidatesTokenCount;
+                    result.usageReceived = true;
+                }
             }
         } else if (provider === "ollama") {
             if (data.message) {
@@ -203,9 +215,13 @@ function parseDelta(jsonText, provider) {
                     result.toolCalls = data.message.tool_calls;
                 if (data.done)
                     result.done = true;
-                if (data.eval_count > 0)
+                if (typeof data.eval_count === "number"
+                        && isFinite(data.eval_count) && data.eval_count >= 0) {
                     result.outputTokens = data.eval_count;
+                    result.usageReceived = true;
+                }
             } else {
+                result.openAiCompatible = true;
                 var ochoices = data.choices;
                 if (ochoices && ochoices[0] && ochoices[0].delta) {
                     var od = ochoices[0].delta;
@@ -216,11 +232,16 @@ function parseDelta(jsonText, provider) {
                 }
                 if (ochoices && ochoices[0] && ochoices[0].finish_reason)
                     result.done = true;
-                if (data.usage && data.usage.completion_tokens > 0)
+                if (data.usage && typeof data.usage.completion_tokens === "number"
+                        && isFinite(data.usage.completion_tokens)
+                        && data.usage.completion_tokens >= 0) {
                     result.outputTokens = data.usage.completion_tokens;
+                    result.usageReceived = true;
+                }
             }
         } else {
             // OpenAI / OpenAI-compatible
+            result.openAiCompatible = true;
             var choices = data.choices;
             if (choices && choices[0] && choices[0].delta) {
                 var d = choices[0].delta;
@@ -230,8 +251,12 @@ function parseDelta(jsonText, provider) {
             if (choices && choices[0] && choices[0].finish_reason)
                 result.done = true;
             // OpenAI sends usage in the final chunk
-            if (data.usage && data.usage.completion_tokens > 0)
+            if (data.usage && typeof data.usage.completion_tokens === "number"
+                    && isFinite(data.usage.completion_tokens)
+                    && data.usage.completion_tokens >= 0) {
                 result.outputTokens = data.usage.completion_tokens;
+                result.usageReceived = true;
+            }
         }
     } catch (e) {
         console.warn("Ephemera: StreamParser.parseDelta parse error for", provider + ":", e);

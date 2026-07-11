@@ -335,6 +335,7 @@ function ollamaRequest(payload) {
         if (hasTools)
             body.tools = payload.tools;
     } else {
+        body.stream_options = { include_usage: true };
         if (payload.max_tokens > 0) body.max_tokens = payload.max_tokens;
         if (temp !== undefined) body.temperature = temp;
         if (thinkingMode !== "default")
