@@ -6,6 +6,7 @@ import qs.Services
 import "../lib/Providers.js" as Providers
 import "../lib/ChatExport.js" as ChatExport
 import "../lib/Mcp.js" as Mcp
+import "../lib/Submission.js" as Submission
 import "../lib/VariantStore.js" as VariantStore
 
 Item {
@@ -706,16 +707,21 @@ Item {
 
     // ─── Messaging orchestration ───────────────────────────────────
 
+    function canSubmitMessage(text) {
+        return Submission.isReady(
+            text,
+            streamingService.isStreaming,
+            streamingService.transportBusy,
+            streamingService.errorCooldownActive,
+            missingApiKey
+        );
+    }
+
     function sendMessage(text) {
-        if (!text || text.trim().length === 0) return;
-        if (isStreaming || streamingService.isStreaming) {
-            if (activeStreamId)
-                _applyError(activeStreamId, "Please wait until the current response finishes.");
-            return;
-        }
-        if (streamingService.isInErrorCooldown()) return;
+        if (!canSubmitMessage(text)) return false;
         ollamaManager.stopIdleTimer();
         _startStreaming(text.trim());
+        return true;
     }
 
     function regenerate() {

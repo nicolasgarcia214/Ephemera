@@ -79,6 +79,52 @@ var Mcp = loadPragmaLib("src/lib/Mcp.js");
 var McpSchema = loadPragmaLib("src/lib/McpSchema.js");
 var VariantStore = loadPragmaLib("src/lib/VariantStore.js");
 var ErrorHints = loadPragmaLib("src/lib/ErrorHints.js");
+var Submission = loadPragmaLib("src/lib/Submission.js");
+
+// ═════════════════════════════════════════════════════════════════
+// Submission readiness and UI wiring tests
+// ═════════════════════════════════════════════════════════════════
+
+section("Submission readiness contract");
+(function() {
+    assert(Submission.isReady(" accepted ", false, false, false, false),
+        "accepts non-empty text when every safety gate is clear");
+    assert(!Submission.isReady("   ", false, false, false, false),
+        "rejects empty text");
+    assert(!Submission.isReady("draft", true, false, false, false),
+        "rejects while streaming");
+    assert(!Submission.isReady("draft", false, true, false, false),
+        "rejects while the transport is draining");
+    assert(!Submission.isReady("draft", false, false, true, false),
+        "rejects during error cooldown");
+    assert(!Submission.isReady("draft", false, false, false, true),
+        "rejects when provider credentials are missing");
+})();
+
+section("Composer submission wiring");
+(function() {
+    var composerSource = fs.readFileSync(
+        path.join(__dirname, "..", "src/components/ChatComposer.qml"), "utf8");
+    var chatSource = fs.readFileSync(
+        path.join(__dirname, "..", "src/components/EphemeraChat.qml"), "utf8");
+    var serviceSource = fs.readFileSync(
+        path.join(__dirname, "..", "src/services/EphemeraService.qml"), "utf8");
+
+    assert(composerSource.indexOf("aiService.canSubmitMessage(composer.text)") >= 0
+            && composerSource.indexOf("enabled: root.submissionReady") >= 0,
+        "send button uses the coordinator readiness contract");
+    assertEqual((composerSource.match(/root\.requestSubmission\(\)/g) || []).length, 3,
+        "Enter, Ctrl+Enter, and button click share one guarded submission path");
+    assert(composerSource.indexOf(
+            "event.key === Qt.Key_Return && !(event.modifiers & Qt.ShiftModifier)") >= 0,
+        "Shift+Enter remains outside the submission path");
+    assert(chatSource.indexOf("if (aiService.sendMessage(composerArea.text))") >= 0
+            && chatSource.indexOf("composerArea.text = \"\";") >= 0,
+        "composer clears only after coordinator acceptance");
+    assert(serviceSource.indexOf("if (!canSubmitMessage(text)) return false;") >= 0
+            && serviceSource.indexOf("_applyError(activeStreamId") < 0,
+        "rejected coordinator submissions are side-effect free");
+})();
 
 // ═════════════════════════════════════════════════════════════════
 //  StreamParser tests
