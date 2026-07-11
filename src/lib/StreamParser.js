@@ -3,6 +3,101 @@
 // Pure SSE stream parsing functions for Ephemera.
 // These functions take state as input and return updates — no side effects.
 
+var _providerErrorMessage = "The provider reported an error while generating the response.";
+var _providerRefusalMessage = "The provider refused to generate a response.";
+var _providerBlockedMessage = "The provider blocked the response.";
+
+function _isObject(value) {
+    return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function _isOpenAiError(error) {
+    return _isObject(error)
+        && typeof error.message === "string"
+        && (typeof error.type === "string"
+            || typeof error.code === "string"
+            || (typeof error.code === "number" && isFinite(error.code)));
+}
+
+function _isGeminiError(error) {
+    return _isObject(error)
+        && typeof error.message === "string"
+        && typeof error.status === "string"
+        && typeof error.code === "number"
+        && isFinite(error.code);
+}
+
+function _isGeminiBlockedFinishReason(reason) {
+    switch (reason) {
+    case "SAFETY":
+    case "RECITATION":
+    case "LANGUAGE":
+    case "BLOCKLIST":
+    case "PROHIBITED_CONTENT":
+    case "SPII":
+    case "IMAGE_SAFETY":
+        return true;
+    default:
+        return false;
+    }
+}
+
+function _isGeminiFailedFinishReason(reason) {
+    return reason === "OTHER" || reason === "MALFORMED_FUNCTION_CALL";
+}
+
+function _openAiEnvelopeError(data) {
+    if (_isOpenAiError(data && data.error))
+        return _providerErrorMessage;
+    var choices = data && data.choices;
+    if (!Array.isArray(choices) || !choices[0])
+        return "";
+    var delta = choices[0].delta;
+    var message = choices[0].message;
+    if ((delta && typeof delta.refusal === "string" && delta.refusal.length > 0)
+            || (message && typeof message.refusal === "string" && message.refusal.length > 0))
+        return _providerRefusalMessage;
+    return "";
+}
+
+function _providerEnvelopeError(data, provider) {
+    if (!_isObject(data))
+        return "";
+    if (provider === "anthropic") {
+        if (data.type === "error" && _isObject(data.error)
+                && typeof data.error.type === "string"
+                && typeof data.error.message === "string")
+            return _providerErrorMessage;
+        if (data.type === "message_delta" && data.delta
+                && data.delta.stop_reason === "refusal")
+            return _providerRefusalMessage;
+        return "";
+    }
+    if (provider === "gemini") {
+        if (_isGeminiError(data.error))
+            return _providerErrorMessage;
+        if (data.promptFeedback && ["SAFETY", "OTHER", "BLOCKLIST",
+                "PROHIBITED_CONTENT", "IMAGE_SAFETY"].indexOf(
+                    data.promptFeedback.blockReason) >= 0)
+            return _providerBlockedMessage;
+        var candidates = data.candidates;
+        if (Array.isArray(candidates) && candidates[0]) {
+            var reason = candidates[0].finishReason;
+            if (_isGeminiBlockedFinishReason(reason))
+                return _providerBlockedMessage;
+            if (_isGeminiFailedFinishReason(reason))
+                return _providerErrorMessage;
+        }
+        return "";
+    }
+    if (provider === "ollama") {
+        if (typeof data.error === "string" && data.error.length > 0)
+            return _providerErrorMessage;
+        return _openAiEnvelopeError(data);
+    }
+    return _openAiEnvelopeError(data);
+}
+
 /**
  * Split raw SSE data into complete lines and a remaining buffer.
  *
@@ -49,17 +144,27 @@ function splitLines(chunk, buffer) {
  *
  * @param {string} jsonText - Raw JSON string (after stripping "data:" prefix if present).
  * @param {string} provider - Provider identifier ("anthropic"|"gemini"|"ollama"|"openai"|"custom").
- * @returns {{ content: string, thinking: string, done: boolean, outputTokens: number, toolCalls: Array|false }}
+ * @returns {{ content: string, thinking: string, done: boolean, outputTokens: number, toolCalls: Array|false, error: string }}
  *   content: assistant text delta (empty string if none).
  *   thinking: reasoning/thinking delta (empty string if none).
  *   done: true if the provider signaled stream completion.
  *   outputTokens: completion token count from API (0 if not present in this event).
  *   toolCalls: provider tool call requests, or false if this chunk has none.
+ *   error: bounded user-facing provider error/refusal message, or an empty string.
  */
 function parseDelta(jsonText, provider) {
-    var result = { content: "", thinking: "", done: false, outputTokens: 0, toolCalls: false };
+    var result = {
+        content: "", thinking: "", done: false, outputTokens: 0,
+        toolCalls: false, error: ""
+    };
     try {
         var data = JSON.parse(jsonText);
+        var envelopes = provider === "gemini" && Array.isArray(data) ? data : [data];
+        for (var ei = 0; ei < envelopes.length; ei++) {
+            result.error = _providerEnvelopeError(envelopes[ei], provider);
+            if (result.error)
+                return result;
+        }
         if (provider === "anthropic") {
             if (data.type === "content_block_delta" && data.delta) {
                 if (data.delta.type === "thinking_delta" && data.delta.thinking)

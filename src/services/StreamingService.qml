@@ -351,10 +351,14 @@ Item {
 
     // --- Internal: stream processing ---
     function handleStreamChunk(chunk) {
+        if (!isStreaming)
+            return;
         var result = StreamParser.splitLines(chunk, streamBuffer);
         streamBuffer = result.buffer;
 
         for (var i = 0; i < result.lines.length; i++) {
+            if (!isStreaming)
+                return;
             var line = result.lines[i];
 
             if (line === "data: [DONE]" || line === "data:[DONE]") {
@@ -373,6 +377,13 @@ Item {
             }
 
             var delta = StreamParser.parseDelta(jsonPart, _activeProvider);
+
+            if (delta.error) {
+                var failedStreamId = activeStreamId;
+                if (_markError(failedStreamId, delta.error))
+                    chatFetcher.running = false;
+                return;
+            }
 
             if (delta.outputTokens > 0)
                 _apiOutputTokens = delta.outputTokens;
@@ -464,11 +475,9 @@ Item {
         }
 
         if (lastHttpStatus >= 400 && isStreaming) {
-            var preview = bodyText.length > 600 ? bodyText.slice(0, 600) + "\u2026" : bodyText;
             var hint = ErrorHints.httpErrorHint(lastHttpStatus);
             var msg = "Request failed (HTTP " + lastHttpStatus + ")";
             if (hint) msg += "\n" + hint;
-            if (preview) msg += "\n\n" + preview;
             _markError(activeStreamId, msg);
             return;
         }
@@ -745,6 +754,8 @@ Item {
     }
 
     function _markError(streamId, message) {
+        if (!isStreaming || !streamId || activeStreamId !== streamId)
+            return false;
         _streamContent = message;
         _pendingLaunch = null;
         _clearToolState(true, message);
@@ -757,6 +768,7 @@ Item {
         errorCooldownTimer.restart();
         streamError(streamId, message);
         _activeProvider = "";
+        return true;
     }
 
     function _buildStreamStats() {

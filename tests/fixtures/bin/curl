@@ -9,6 +9,9 @@ for argument do
         -K)
             chat_request=1
             ;;
+        --ephemera-stream-error-test)
+            endpoint="stream-error"
+            ;;
         http://localhost:11434/api/tags|http://127.0.0.1:11434/api/tags)
             endpoint="tags"
             endpoint_url=$argument
@@ -35,6 +38,11 @@ if [ -n "${EPHEMERA_OLLAMA_LIFECYCLE_DIR:-}" ]; then
 fi
 
 case "$endpoint" in
+    stream-error)
+        printf '%s\n' 'data: {"error":{"message":"<b>api-key=must-not-leak</b>","type":"server_error","code":"fixture_failure"}}'
+        sleep 10
+        printf '%s\n' 'data: [DONE]'
+        ;;
     tags|ps)
         printf '{"models":[]}\n'
         ;;

@@ -287,6 +287,94 @@ section("StreamParser.parseDelta — Gemini");
     assertEqual(r.content, "", "handles parts without text");
 })();
 
+section("StreamParser.parseDelta — provider errors and refusals");
+(function() {
+    var rawDiagnostic = "<b>api-key=must-not-leak</b>\n" + "x".repeat(2000);
+    var r = StreamParser.parseDelta(JSON.stringify({
+        error: {
+            message: rawDiagnostic,
+            type: "server_error",
+            code: "provider_failure"
+        }
+    }), "openai");
+    assert(r.error.length > 0, "detects OpenAI error envelope");
+    assert(r.error.length < 100, "OpenAI error signal is bounded");
+    assert(r.error.indexOf("api-key") < 0 && r.error.indexOf("<b>") < 0,
+        "OpenAI error signal omits raw server formatting and secrets");
+
+    r = StreamParser.parseDelta(JSON.stringify({
+        choices: [{ delta: { refusal: "unsafe server-authored refusal" } }]
+    }), "openai");
+    assert(r.error.indexOf("refused") >= 0, "detects OpenAI streamed refusal");
+    assert(r.error.indexOf("server-authored") < 0, "does not expose OpenAI refusal text");
+
+    r = StreamParser.parseDelta(JSON.stringify({
+        error: { message: "custom failure", type: "api_error" }
+    }), "custom");
+    assert(r.error.length > 0, "detects OpenAI-compatible custom provider error");
+
+    r = StreamParser.parseDelta(JSON.stringify({
+        type: "error",
+        error: { type: "overloaded_error", message: rawDiagnostic }
+    }), "anthropic");
+    assert(r.error.length > 0, "detects Anthropic SSE error event");
+    assert(r.error.indexOf("api-key") < 0, "does not expose Anthropic error details");
+
+    r = StreamParser.parseDelta(JSON.stringify({
+        type: "message_delta",
+        delta: { stop_reason: "refusal" }
+    }), "anthropic");
+    assert(r.error.indexOf("refused") >= 0, "detects Anthropic refusal stop reason");
+    assertEqual(r.done, false, "does not report Anthropic refusal as successful completion");
+
+    r = StreamParser.parseDelta(JSON.stringify({
+        error: { code: 500, message: rawDiagnostic, status: "INTERNAL" }
+    }), "gemini");
+    assert(r.error.length > 0, "detects Gemini standard error envelope");
+    assert(r.error.indexOf("api-key") < 0, "does not expose Gemini error details");
+
+    r = StreamParser.parseDelta(JSON.stringify({
+        promptFeedback: { blockReason: "SAFETY" }
+    }), "gemini");
+    assert(r.error.indexOf("blocked") >= 0, "detects Gemini blocked prompt");
+
+    r = StreamParser.parseDelta(JSON.stringify({
+        candidates: [{ finishReason: "PROHIBITED_CONTENT" }]
+    }), "gemini");
+    assert(r.error.indexOf("blocked") >= 0, "detects Gemini blocked candidate");
+
+    r = StreamParser.parseDelta(JSON.stringify({
+        candidates: [{ finishReason: "MALFORMED_FUNCTION_CALL" }]
+    }), "gemini");
+    assert(r.error.length > 0, "detects Gemini failed generation reason");
+
+    r = StreamParser.parseDelta(JSON.stringify({ error: rawDiagnostic }), "ollama");
+    assert(r.error.length > 0, "detects Ollama native streamed error");
+    assert(r.error.indexOf("api-key") < 0, "does not expose Ollama error details");
+
+    r = StreamParser.parseDelta(JSON.stringify({
+        error: { message: rawDiagnostic, type: "server_error" }
+    }), "ollama");
+    assert(r.error.length > 0, "detects Ollama OpenAI-compatible error");
+
+    r = StreamParser.parseDelta(JSON.stringify({
+        choices: [{ delta: { content: "The word error is valid content." } }],
+        error: { message: "not a documented envelope" }
+    }), "openai");
+    assertEqual(r.error, "", "ignores malformed OpenAI error lookalike");
+    assertEqual(r.content, "The word error is valid content.",
+        "keeps valid content beside an error lookalike");
+
+    r = StreamParser.parseDelta(JSON.stringify({
+        candidates: [{
+            content: { parts: [{ text: "valid Gemini content" }] },
+            finishReason: "STOP"
+        }]
+    }), "gemini");
+    assertEqual(r.error, "", "does not mistake Gemini normal stop for refusal");
+    assertEqual(r.content, "valid Gemini content", "keeps normal Gemini content");
+})();
+
 section("StreamParser.parseDelta — outputTokens");
 (function() {
     // OpenAI: usage.completion_tokens in final chunk
