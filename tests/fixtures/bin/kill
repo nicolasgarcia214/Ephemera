@@ -1,0 +1,3 @@
+#!/bin/sh
+printf 'unexpected test kill invocation: %s\n' "$*" >&2
+exit 2

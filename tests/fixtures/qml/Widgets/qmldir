@@ -1,0 +1,10 @@
+module Widgets
+DankActionButton 1.0 DankActionButton.qml
+DankButton 1.0 DankButton.qml
+DankDropdown 1.0 DankDropdown.qml
+DankFlickable 1.0 DankFlickable.qml
+DankIcon 1.0 DankIcon.qml
+DankSlider 1.0 DankSlider.qml
+DankTextField 1.0 DankTextField.qml
+DankTooltipV2 1.0 DankTooltipV2.qml
+StyledText 1.0 StyledText.qml
