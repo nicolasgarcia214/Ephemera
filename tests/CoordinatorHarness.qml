@@ -110,10 +110,8 @@ ShellRoot {
                 && Object.keys(service.variantStore).length === 0
                 && service._loadingSettings === false,
                 "external provider change did not complete without reentrancy")) return;
-        if (!check(PluginService.loadPluginData(
-                    "ephemera", "chatHistory", "missing") === ""
-                && PluginService.loadPluginData(
-                    "ephemera", "chatVariants", "missing") === "",
+        if (!check(PluginService.loadPluginState(
+                    "ephemera", "chatState", null) === null,
                 "external provider change did not clear persisted chat")) return;
 
         service.messagesModel.append({

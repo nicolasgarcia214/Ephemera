@@ -44,11 +44,7 @@ SettingsCard {
             id: persistToggle
             checked: aiService.persistChat
             anchors.verticalCenter: parent.verticalCenter
-            onToggled: {
-                aiService.persistChat = checked;
-                aiService.saveSettingValue("persistChat", checked);
-                if (checked) aiService.saveChatHistory();
-            }
+            onToggled: aiService.setPersistChat(checked)
         }
     }
 }

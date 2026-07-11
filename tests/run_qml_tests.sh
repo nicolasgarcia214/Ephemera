@@ -29,6 +29,7 @@ cp "$ROOT/tests/McpServiceHarness.qml" "$CONFIG_DIR/McpServiceHarness.qml"
 cp "$ROOT/tests/McpApprovalHarness.qml" "$CONFIG_DIR/McpApprovalHarness.qml"
 cp "$ROOT/tests/ProviderIsolationHarness.qml" "$CONFIG_DIR/ProviderIsolationHarness.qml"
 cp "$ROOT/tests/CoordinatorHarness.qml" "$CONFIG_DIR/CoordinatorHarness.qml"
+cp "$ROOT/tests/PersistenceHarness.qml" "$CONFIG_DIR/PersistenceHarness.qml"
 cp "$ROOT/tests/OllamaLifecycleHarness.qml" "$CONFIG_DIR/OllamaLifecycleHarness.qml"
 cp "$ROOT/tests/fixtures/qml/Common/"* "$CONFIG_DIR/Common/"
 cp "$ROOT/tests/fixtures/qml/Services/"* "$CONFIG_DIR/Services/"
@@ -205,4 +206,5 @@ run_harness McpServiceHarness EPHEMERA_MCP_QML_TEST
 run_harness McpApprovalHarness EPHEMERA_MCP_APPROVAL_TEST
 run_harness ProviderIsolationHarness EPHEMERA_PROVIDER_ISOLATION_TEST
 run_harness CoordinatorHarness EPHEMERA_COORDINATOR_TEST
+run_harness PersistenceHarness EPHEMERA_PERSISTENCE_TEST
 run_ollama_lifecycle_harness
