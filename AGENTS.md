@@ -45,7 +45,7 @@ EphemeraService.qml is the **coordinator** that owns message state (`messagesMod
 ## Key Design Decisions
 
 - **curl via Process** — `curl -K -` so URL, auth headers, and body never appear in `/proc/cmdline` or `ps` output. `escapeCurlConfig()` handles config format escaping.
-- **Deferred markdown** — `markdownToHtml()` runs only after streaming completes, never per-delta. `_lastRenderedText` cache prevents redundant re-renders.
+- **Deferred markdown** — `markdownToHtml()` runs only after streaming completes, never per-delta. `_lastRenderKey` includes the message text and every theme color passed to the renderer so theme changes invalidate HTML without redundant re-renders.
 - **Variants, not replacements** — regeneration saves current response into `variantStore[msgId]` and streams a new one. Capped at 10 (FIFO). Cancel preserves partial content as a navigable variant.
 - **Three thinking paths** — (1) `<think>` tags in content stream (Ollama), (2) `reasoning_content` fields (DeepSeek API), (3) Anthropic extended thinking with interleaved-thinking header.
 - **Settings vs state** — `savePluginData` for user preferences (requires permissions); `savePluginState` for runtime data like chat history (no permissions, debounced 150ms, atomic).

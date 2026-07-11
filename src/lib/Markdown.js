@@ -17,6 +17,27 @@ function escapeHtml(str) {
 }
 
 /**
+ * Build a stable cache key for every input that affects rendered markdown.
+ *
+ * QColor values are stringified explicitly because QML passes them as value
+ * types rather than plain JavaScript strings.
+ *
+ * @param {string} text - Raw markdown text.
+ * @param {Object} colors - Theme colors passed to markdownToHtml().
+ * @returns {string} Stable render-input cache key.
+ */
+function renderCacheKey(text, colors) {
+    var c = colors || {};
+    return JSON.stringify([
+        text || "",
+        String(c.codeBg || ""),
+        String(c.inlineCodeBg || ""),
+        String(c.blockquoteBg || ""),
+        String(c.blockquoteBorder || "")
+    ]);
+}
+
+/**
  * Convert markdown text to Qt-compatible HTML for display in QML Text (RichText mode).
  *
  * Processing pipeline:
