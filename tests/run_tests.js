@@ -2212,6 +2212,60 @@ section("Ollama process identity");
     );
 })();
 
+section("Conversation export lifecycle wiring");
+
+(function() {
+    var streamingSource = fs.readFileSync(
+        path.join(__dirname, "..", "src/services/StreamingService.qml"),
+        "utf8"
+    );
+    var coordinatorSource = fs.readFileSync(
+        path.join(__dirname, "..", "src/services/EphemeraService.qml"),
+        "utf8"
+    );
+    var chatSource = fs.readFileSync(
+        path.join(__dirname, "..", "src/components/EphemeraChat.qml"),
+        "utf8"
+    );
+
+    assert(
+        streamingSource.indexOf('execDetached(["wl-copy"') < 0
+            && streamingSource.indexOf('property var _clipboardExportCommand: ["wl-copy", "--"]') >= 0,
+        "conversation clipboard export uses a managed stdin process"
+    );
+    assert(
+        streamingSource.indexOf('"-m", "0600", "/dev/stdin", filename') >= 0,
+        "file export preserves stdin transport and mode 0600"
+    );
+    assert(
+        streamingSource.indexOf("readonly property bool exportBusy") >= 0
+            && streamingSource.indexOf("Another conversation export is already in progress.") >= 0,
+        "overlapping conversation exports are rejected with explicit feedback"
+    );
+    assert(
+        coordinatorSource.indexOf("signal conversationExportSucceeded") >= 0
+            && coordinatorSource.indexOf("signal conversationExportFailed") >= 0
+            && coordinatorSource.indexOf("onExportSucceeded:") >= 0
+            && coordinatorSource.indexOf("onExportFailed:") >= 0,
+        "coordinator exposes only completion-driven export facade signals"
+    );
+
+    var fileExportFunction = coordinatorSource.match(
+        /function exportConversationToFile\(\) \{[\s\S]*?\n    \}/
+    );
+    assert(
+        !!fileExportFunction && fileExportFunction[0].indexOf("return filename") < 0,
+        "file export no longer returns an optimistic filename"
+    );
+    assert(
+        chatSource.indexOf("onExportRequested: aiService.exportConversation()") >= 0
+            && chatSource.indexOf("onExportFileRequested: aiService.exportConversationToFile()") >= 0
+            && chatSource.indexOf("function onConversationExportSucceeded") >= 0
+            && chatSource.indexOf("function onConversationExportFailed") >= 0,
+        "chat toasts are driven by confirmed success and failure signals"
+    );
+})();
+
 // ─── Summary ───────────────────────────────────────────────────
 
 console.log("\n" + "=".repeat(50));

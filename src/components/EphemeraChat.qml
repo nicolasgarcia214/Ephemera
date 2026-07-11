@@ -28,6 +28,17 @@ Item {
             if (!aiService.isStreaming && root.visible)
                 composerArea.forceActiveFocus();
         }
+
+        function onConversationExportSucceeded(exportId, exportKind, target) {
+            if (exportKind === "clipboard")
+                chatToast.show("Conversation copied to clipboard");
+            else
+                chatToast.show("Saved to " + target.split("/").pop());
+        }
+
+        function onConversationExportFailed(exportId, exportKind, message) {
+            chatToast.show(message);
+        }
     }
 
     onVisibleChanged: {
@@ -89,14 +100,8 @@ Item {
                 if (root.showSettings) root.closeSettings();
                 else root.showSettings = true;
             }
-            onExportRequested: {
-                aiService.exportConversation();
-                chatToast.show("Conversation copied to clipboard");
-            }
-            onExportFileRequested: {
-                var file = aiService.exportConversationToFile();
-                chatToast.show("Saved to " + file.split("/").pop());
-            }
+            onExportRequested: aiService.exportConversation()
+            onExportFileRequested: aiService.exportConversationToFile()
             onClearRequested: root._handleClearRequest()
             onExpandToggled: root.expandToggled()
             onPanelSideToggled: aiService.togglePanelSide()
