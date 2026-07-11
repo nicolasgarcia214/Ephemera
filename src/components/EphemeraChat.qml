@@ -50,10 +50,9 @@ Item {
     }
 
     function sendCurrentMessage() {
-        if (!composerArea.text || composerArea.text.trim().length === 0) return;
         if (!aiService) return;
-        aiService.sendMessage(composerArea.text.trim());
-        composerArea.text = "";
+        if (aiService.sendMessage(composerArea.text))
+            composerArea.text = "";
     }
 
     function closeSettings() {

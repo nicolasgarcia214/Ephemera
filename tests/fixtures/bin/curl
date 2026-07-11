@@ -3,8 +3,12 @@ set -eu
 
 endpoint=""
 endpoint_url=""
+chat_request=0
 for argument do
     case "$argument" in
+        -K)
+            chat_request=1
+            ;;
         http://localhost:11434/api/tags|http://127.0.0.1:11434/api/tags)
             endpoint="tags"
             endpoint_url=$argument
@@ -35,6 +39,15 @@ case "$endpoint" in
         printf '{"models":[]}\n'
         ;;
     *)
+        if [ "$chat_request" -eq 1 ] \
+                && [ "${EPHEMERA_SUBMISSION_FIXTURE:-0}" -eq 1 ]; then
+            # Consume curl's config from stdin so the QML process can close it.
+            sed -n '1,$p' >/dev/null
+            printf '%s\n' \
+                '{"message":{"content":"accepted response"},"done":false}' \
+                '{"message":{"content":""},"done":true,"eval_count":2}'
+            exit 0
+        fi
         printf 'unexpected test curl invocation: %s\n' "$*" >&2
         exit 2
         ;;

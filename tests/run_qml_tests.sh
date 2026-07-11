@@ -29,6 +29,7 @@ cp "$ROOT/tests/McpServiceHarness.qml" "$CONFIG_DIR/McpServiceHarness.qml"
 cp "$ROOT/tests/McpApprovalHarness.qml" "$CONFIG_DIR/McpApprovalHarness.qml"
 cp "$ROOT/tests/ProviderIsolationHarness.qml" "$CONFIG_DIR/ProviderIsolationHarness.qml"
 cp "$ROOT/tests/CoordinatorHarness.qml" "$CONFIG_DIR/CoordinatorHarness.qml"
+cp "$ROOT/tests/SubmissionHarness.qml" "$CONFIG_DIR/SubmissionHarness.qml"
 cp "$ROOT/tests/PersistenceHarness.qml" "$CONFIG_DIR/PersistenceHarness.qml"
 cp "$ROOT/tests/OllamaLifecycleHarness.qml" "$CONFIG_DIR/OllamaLifecycleHarness.qml"
 cp "$ROOT/tests/fixtures/qml/Common/"* "$CONFIG_DIR/Common/"
@@ -43,6 +44,7 @@ cp "$ROOT/src/lib/Mcp.js" "$CONFIG_DIR/src/lib/Mcp.js"
 cp "$ROOT/src/lib/McpSchema.js" "$CONFIG_DIR/src/lib/McpSchema.js"
 cp "$ROOT/src/lib/Providers.js" "$CONFIG_DIR/src/lib/Providers.js"
 cp "$ROOT/src/lib/StreamParser.js" "$CONFIG_DIR/src/lib/StreamParser.js"
+cp "$ROOT/src/lib/Submission.js" "$CONFIG_DIR/src/lib/Submission.js"
 cp "$ROOT/src/lib/VariantStore.js" "$CONFIG_DIR/src/lib/VariantStore.js"
 cp "$ROOT/src/lib/ErrorHints.js" "$CONFIG_DIR/src/lib/ErrorHints.js"
 cp "$ROOT/src/lib/Backoff.js" "$CONFIG_DIR/src/lib/Backoff.js"
@@ -159,6 +161,19 @@ run_harness() {
     mkdir -p "$harness_runtime"
     chmod 700 "$harness_runtime"
 
+    test_openai_key="must-not-reach-mcp"
+    test_anthropic_key="must-not-reach-mcp"
+    test_gemini_key="must-not-reach-mcp"
+    test_ephemera_key="must-not-reach-mcp"
+    submission_fixture=0
+    if [ "$harness" = "SubmissionHarness" ]; then
+        test_openai_key=""
+        test_anthropic_key=""
+        test_gemini_key=""
+        test_ephemera_key=""
+        submission_fixture=1
+    fi
+
     output=$(PATH="$ROOT/tests/fixtures/bin:$PATH" \
         EPHEMERA_TEST_NODE="$TEST_NODE" \
         EPHEMERA_TEST_RUNTIME_OVERRIDE="$TEST_RUNTIME_OVERRIDE" \
@@ -167,10 +182,11 @@ run_harness() {
         NODE_TLS_REJECT_UNAUTHORIZED=0 \
         NODE_DEBUG="http,https,tls" \
         __IS_WSL_TEST__=1 \
-        OPENAI_API_KEY="must-not-reach-mcp" \
-        ANTHROPIC_API_KEY="must-not-reach-mcp" \
-        GEMINI_API_KEY="must-not-reach-mcp" \
-        EPHEMERA_API_KEY="must-not-reach-mcp" \
+        OPENAI_API_KEY="$test_openai_key" \
+        ANTHROPIC_API_KEY="$test_anthropic_key" \
+        GEMINI_API_KEY="$test_gemini_key" \
+        EPHEMERA_API_KEY="$test_ephemera_key" \
+        EPHEMERA_SUBMISSION_FIXTURE="$submission_fixture" \
         XDG_RUNTIME_DIR="$harness_runtime" \
         QT_QPA_PLATFORM=offscreen \
         QS_NO_RELOAD_POPUP=1 \
@@ -206,5 +222,6 @@ run_harness McpServiceHarness EPHEMERA_MCP_QML_TEST
 run_harness McpApprovalHarness EPHEMERA_MCP_APPROVAL_TEST
 run_harness ProviderIsolationHarness EPHEMERA_PROVIDER_ISOLATION_TEST
 run_harness CoordinatorHarness EPHEMERA_COORDINATOR_TEST
+run_harness SubmissionHarness EPHEMERA_SUBMISSION_TEST
 run_harness PersistenceHarness EPHEMERA_PERSISTENCE_TEST
 run_ollama_lifecycle_harness

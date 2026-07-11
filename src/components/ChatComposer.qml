@@ -9,6 +9,8 @@ Row {
 
     required property var aiService
     property alias text: composer.text
+    readonly property bool submissionReady:
+        aiService && aiService.canSubmitMessage(composer.text)
 
     signal sendRequested()
     signal hideRequested()
@@ -16,6 +18,11 @@ Row {
     signal settingsToggled()
 
     function forceActiveFocus() { composer.forceActiveFocus(); }
+
+    function requestSubmission() {
+        if (submissionReady)
+            sendRequested();
+    }
 
     width: parent ? parent.width : 0
     height: composerContainer.height
@@ -77,10 +84,10 @@ Row {
                         root.hideRequested();
                         event.accepted = true;
                     } else if (event.key === Qt.Key_Return && !(event.modifiers & Qt.ShiftModifier)) {
-                        root.sendRequested();
+                        root.requestSubmission();
                         event.accepted = true;
                     } else if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_Return) {
-                        root.sendRequested();
+                        root.requestSubmission();
                         event.accepted = true;
                     } else if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_L) {
                         root.clearRequested();
@@ -131,11 +138,11 @@ Row {
             backgroundColor: Theme.primary
             iconColor: Theme.onPrimary
             tooltipText: "Send"
-            enabled: composer.text && composer.text.trim().length > 0 && !aiService.isStreaming && !aiService.missingApiKey
+            enabled: root.submissionReady
             opacity: aiService.isStreaming ? 0.0 : 1.0
             scale: aiService.isStreaming ? 0.6 : 1.0
             visible: opacity > 0
-            onClicked: root.sendRequested()
+            onClicked: root.requestSubmission()
 
             Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
             Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }

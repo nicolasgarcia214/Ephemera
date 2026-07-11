@@ -105,12 +105,21 @@ Item {
     // --- Public API ---
 
     function isInErrorCooldown() {
-        return Backoff.isInCooldown(_cooldownUntil);
+        return errorCooldownActive;
     }
 
     function resetErrorState() {
+        errorCooldownTimer.stop();
         _cooldownUntil = 0;
         _consecutiveErrors = 0;
+    }
+
+    readonly property bool errorCooldownActive:
+        errorCooldownTimer.running && Backoff.isInCooldown(_cooldownUntil)
+
+    Timer {
+        id: errorCooldownTimer
+        repeat: false
     }
 
     function activeStreamContext() {
@@ -729,6 +738,7 @@ Item {
         isStreaming = false;
         activeStreamId = "";
         _cooldownUntil = 0;
+        errorCooldownTimer.stop();
         _consecutiveErrors = 0;
         streamFinalized(streamId, _buildStreamStats());
         _activeProvider = "";
@@ -743,6 +753,8 @@ Item {
         lastRequestFailed = true;
         _consecutiveErrors++;
         _cooldownUntil = Backoff.computeCooldownUntil(_consecutiveErrors, _backoffBaseMs, _backoffMaxMs);
+        errorCooldownTimer.interval = Math.max(1, _cooldownUntil - Date.now());
+        errorCooldownTimer.restart();
         streamError(streamId, message);
         _activeProvider = "";
     }
