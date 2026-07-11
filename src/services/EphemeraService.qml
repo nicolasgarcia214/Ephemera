@@ -33,6 +33,11 @@ Item {
     readonly property string mcpPendingToolName: streamingService.pendingToolName
     readonly property string mcpPendingToolDescription: streamingService.pendingToolDescription
     readonly property string mcpPendingToolArgumentsText: streamingService.pendingToolArgumentsText
+    property var _activeRequestSnapshot: null
+    property string _activeRequestCredential: ""
+    property string _requestSnapshotStreamId: ""
+    property string _requestSnapshotProvider: ""
+    property int _requestSnapshotGeneration: -1
 
     // --- Persistence (opt-in) ---
     property bool persistChat: false
@@ -520,6 +525,7 @@ Item {
 
     function clearChat() {
         streamingService.reset();
+        _clearRequestSnapshot();
         messagesModel.clear();
         messageIndexMap = ({});
         variantStore = ({});
@@ -746,7 +752,7 @@ Item {
         messagesModel.setProperty(lastIdx, "status", "streaming");
         messagesModel.setProperty(lastIdx, "modelName", model);
 
-        streamingService.beginStream(msgId, newIndex);
+        _beginRequestStream(msgId, newIndex);
         _launchCurl();
     }
 
@@ -780,7 +786,7 @@ Item {
         messagesModel.append(_createMessageEntry("assistant", "", streamId, now, "streaming", model));
         messageIndexMap[streamId] = messagesModel.count - 1;
 
-        streamingService.beginStream(streamId, 0);
+        _beginRequestStream(streamId, 0);
         _launchCurl();
     }
 
@@ -800,7 +806,7 @@ Item {
             messagesModel.setProperty(idx, "content", streamingService._streamContent);
             messagesModel.setProperty(idx, "thinking", streamingService._streamThinking);
             messagesModel.setProperty(idx, "variantIndex", newIndex);
-            messagesModel.setProperty(idx, "modelName", model);
+            messagesModel.setProperty(idx, "modelName", _requestModelForStream(msgId));
             messagesModel.setProperty(idx, "status", "streaming");
             return;
         }
@@ -886,8 +892,100 @@ Item {
         messagesModel.append(_createMessageEntry("assistant", "", streamId, now + 1, "streaming", model));
         messageIndexMap[streamId] = messagesModel.count - 1;
 
-        streamingService.beginStream(streamId, 0);
+        _beginRequestStream(streamId, 0);
         _launchCurl();
+    }
+
+    function _cloneRequestValue(value) {
+        return JSON.parse(JSON.stringify(value));
+    }
+
+    function _buildConversationMessages(prompt, turnLimit) {
+        var msgs = [];
+        if (prompt && prompt.trim().length > 0)
+            msgs.push({ role: "system", content: prompt.trim() });
+
+        var turns = 0;
+        var collected = [];
+        for (var i = messagesModel.count - 1; i >= 0; i--) {
+            var m = messagesModel.get(i);
+            if (!m || m.status !== "ok") continue;
+            if (m.role !== "user" && m.role !== "assistant") continue;
+            collected.unshift({ role: m.role, content: m.content });
+            if (m.role === "user") {
+                turns++;
+                if (turns >= turnLimit) break;
+            }
+        }
+
+        for (var j = 0; j < collected.length; j++)
+            msgs.push(collected[j]);
+        return msgs;
+    }
+
+    function _captureRequestSnapshot() {
+        var tools = [];
+        if (provider === "ollama" && root.mcpToolRequestsAllowed
+                && mcpServiceInstance.isConnected) {
+            tools = mcpServiceInstance.getOllamaTools(activeMcpToolApprovals);
+        }
+        return {
+            provider: provider,
+            model: model,
+            baseUrl: baseUrl,
+            systemPrompt: systemPrompt,
+            temperature: temperature,
+            maxTokens: maxTokens,
+            unlimitedTokens: unlimitedTokens,
+            maxTurns: maxTurns,
+            timeout: timeout,
+            ollamaThinkingMode: ollamaThinkingMode,
+            ollamaContextWindow: ollamaContextWindow,
+            thinkingEnabled: thinkingEnabled,
+            tools: _cloneRequestValue(tools),
+            messages: _buildConversationMessages(systemPrompt, maxTurns)
+        };
+    }
+
+    function _beginRequestStream(streamId, variantIndex) {
+        var snapshot = _captureRequestSnapshot();
+        var credential = resolveApiKey(snapshot.provider);
+        streamingService.beginStream(streamId, variantIndex, snapshot.messages);
+        var context = streamingService.activeStreamContext();
+        _activeRequestSnapshot = snapshot;
+        _activeRequestCredential = credential;
+        _requestSnapshotStreamId = context.streamId;
+        _requestSnapshotProvider = context.provider;
+        _requestSnapshotGeneration = context.generation;
+    }
+
+    function _activeStreamContext() {
+        return streamingService.activeStreamContext();
+    }
+
+    function _requestSnapshotForContext(streamId, streamProvider, streamGeneration) {
+        if (!_activeRequestSnapshot
+                || _requestSnapshotStreamId !== streamId
+                || _requestSnapshotProvider !== streamProvider
+                || _requestSnapshotGeneration !== streamGeneration)
+            return null;
+        return _activeRequestSnapshot;
+    }
+
+    function _requestModelForStream(streamId) {
+        if (_activeRequestSnapshot && _requestSnapshotStreamId === streamId)
+            return _activeRequestSnapshot.model;
+        return model;
+    }
+
+    function _clearRequestSnapshot(streamId) {
+        if (streamId && _requestSnapshotStreamId !== streamId)
+            return;
+        _activeRequestSnapshot = null;
+        _activeRequestCredential = "";
+        _requestSnapshotStreamId = "";
+        _requestSnapshotProvider = "";
+        _requestSnapshotGeneration = -1;
     }
 
     function _launchCurl() {
@@ -897,8 +995,12 @@ Item {
                 || context.provider !== provider)
             return;
 
-        var payload = _buildPayload(lastUserText);
-        var result = _buildCurlCommand(payload);
+        var snapshot = _requestSnapshotForContext(
+            context.streamId, context.provider, context.generation);
+        if (!snapshot)
+            return;
+        var payload = _buildPayloadFromSnapshot(snapshot);
+        var result = _buildCurlCommand(payload, _activeRequestCredential);
         if (!result) {
             var errorMessage;
             if (provider === "ollama") {
@@ -924,44 +1026,27 @@ Item {
     }
 
     function _buildPayload(latestText) {
-        var msgs = [];
-        if (systemPrompt && systemPrompt.trim().length > 0)
-            msgs.push({ role: "system", content: systemPrompt.trim() });
+        return _buildPayloadFromSnapshot(_captureRequestSnapshot());
+    }
 
-        var turns = 0;
-        var collected = [];
-        for (var i = messagesModel.count - 1; i >= 0; i--) {
-            var m = messagesModel.get(i);
-            if (!m || m.status !== "ok") continue;
-            if (m.role !== "user" && m.role !== "assistant") continue;
-            collected.unshift({ role: m.role, content: m.content });
-            if (m.role === "user") {
-                turns++;
-                if (turns >= maxTurns) break;
-            }
-        }
-
-        for (var j = 0; j < collected.length; j++)
-            msgs.push(collected[j]);
-
+    function _buildPayloadFromSnapshot(snapshot, messages) {
+        var requestMessages = messages === undefined
+            ? snapshot.messages : messages;
         var payload = {
-            provider: provider,
-            baseUrl: baseUrl,
-            model: model,
-            temperature: temperature,
-            max_tokens: unlimitedTokens ? 0 : maxTokens,
-            messages: msgs,
+            provider: snapshot.provider,
+            baseUrl: snapshot.baseUrl,
+            model: snapshot.model,
+            temperature: snapshot.temperature,
+            max_tokens: snapshot.unlimitedTokens ? 0 : snapshot.maxTokens,
+            messages: _cloneRequestValue(requestMessages),
             stream: true,
-            timeout: timeout,
-            ollamaThinkingMode: ollamaThinkingMode,
-            ollamaContextWindow: ollamaContextWindow,
-            thinkingEnabled: thinkingEnabled
+            timeout: snapshot.timeout,
+            ollamaThinkingMode: snapshot.ollamaThinkingMode,
+            ollamaContextWindow: snapshot.ollamaContextWindow,
+            thinkingEnabled: snapshot.thinkingEnabled
         };
-        if (provider === "ollama" && root.mcpToolRequestsAllowed && mcpServiceInstance.isConnected) {
-            var tools = mcpServiceInstance.getOllamaTools(activeMcpToolApprovals);
-            if (tools.length > 0)
-                payload.tools = tools;
-        }
+        if (snapshot.tools.length > 0)
+            payload.tools = _cloneRequestValue(snapshot.tools);
         return payload;
     }
 
@@ -971,9 +1056,12 @@ Item {
                 || streamProvider !== provider)
             return false;
 
-        var payload = _buildPayload(lastUserText);
-        payload.messages = messages;
-        var result = _buildCurlCommand(payload);
+        var snapshot = _requestSnapshotForContext(
+            streamId, streamProvider, streamGeneration);
+        if (!snapshot)
+            return false;
+        var payload = _buildPayloadFromSnapshot(snapshot, messages);
+        var result = _buildCurlCommand(payload, _activeRequestCredential);
         if (!result) {
             streamingService.failActiveStream("Could not resume after MCP tool call.",
                                               streamId, streamProvider, streamGeneration);
@@ -986,9 +1074,10 @@ Item {
                                            streamProvider, streamGeneration);
     }
 
-    function _buildCurlCommand(payload) {
+    function _buildCurlCommand(payload, requestCredential) {
         var requestProvider = payload.provider;
-        var key = resolveApiKey(requestProvider);
+        var key = requestCredential === undefined
+            ? resolveApiKey(requestProvider) : requestCredential;
         if (requestProvider !== "ollama" && !key) return null;
         if (requestProvider === "ollama" && !payload.model) return null;
         return Providers.buildCurlCommand(requestProvider, payload, key);
@@ -1017,9 +1106,13 @@ Item {
     }
 
     function _applyFinalize(streamId, stats) {
+        var requestModel = _requestModelForStream(streamId);
+        var requestProvider = _activeRequestSnapshot
+            && _requestSnapshotStreamId === streamId
+            ? _activeRequestSnapshot.provider : provider;
         var idx = findIndexById(streamId);
         if (idx >= 0) {
-            _saveVariant(streamId, streamingService._streamVariantIndex, streamingService._streamContent, streamingService._streamThinking, model);
+            _saveVariant(streamId, streamingService._streamVariantIndex, streamingService._streamContent, streamingService._streamThinking, requestModel);
             var msg = messagesModel.get(idx);
             if (msg.variantIndex === streamingService._streamVariantIndex) {
                 messagesModel.setProperty(idx, "content", streamingService._streamContent);
@@ -1028,25 +1121,29 @@ Item {
             messagesModel.setProperty(idx, "streamStats", stats);
             messagesModel.setProperty(idx, "status", "ok");
         }
-        if (isOllama) ollamaManager.queryGpuStatus(model);
+        if (requestProvider === "ollama") ollamaManager.queryGpuStatus(requestModel);
         saveChatHistory();
+        _clearRequestSnapshot(streamId);
     }
 
     function _applyError(streamId, message) {
+        var requestModel = _requestModelForStream(streamId);
         var idx = findIndexById(streamId);
         if (idx >= 0) {
-            _saveVariant(streamId, streamingService._streamVariantIndex, message, streamingService._streamThinking, model);
+            _saveVariant(streamId, streamingService._streamVariantIndex, message, streamingService._streamThinking, requestModel);
             var msg = messagesModel.get(idx);
             if (msg.variantIndex === streamingService._streamVariantIndex)
                 messagesModel.setProperty(idx, "content", message);
             messagesModel.setProperty(idx, "status", "error");
         }
+        _clearRequestSnapshot(streamId);
     }
 
     function _applyCancelled(streamId, stats) {
+        var requestModel = _requestModelForStream(streamId);
         var idx = findIndexById(streamId);
         if (idx >= 0) {
-            _saveVariant(streamId, streamingService._streamVariantIndex, streamingService._streamContent, streamingService._streamThinking, model);
+            _saveVariant(streamId, streamingService._streamVariantIndex, streamingService._streamContent, streamingService._streamThinking, requestModel);
             var msg = messagesModel.get(idx);
             if (msg.variantIndex === streamingService._streamVariantIndex) {
                 messagesModel.setProperty(idx, "content", streamingService._streamContent);
@@ -1056,6 +1153,7 @@ Item {
             messagesModel.setProperty(idx, "status", "ok");
         }
         saveChatHistory();
+        _clearRequestSnapshot(streamId);
     }
 
     function _saveVariant(msgId, index, content, thinking, variantModel) {
