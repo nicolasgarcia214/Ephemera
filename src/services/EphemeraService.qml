@@ -89,6 +89,7 @@ Item {
     property alias ollamaExternallyManaged: ollamaManager.ollamaExternallyManaged
     property alias ollamaReady: ollamaManager.ollamaReady
     property alias discoveryError: ollamaManager.discoveryError
+    readonly property string ollamaProbeError: ollamaManager.probeError
     property alias ollamaIdleMinutes: ollamaManager.ollamaIdleMinutes
     property alias ollamaRetries: ollamaManager.ollamaRetries
     readonly property int ollamaMaxRetries: ollamaManager.ollamaMaxRetries

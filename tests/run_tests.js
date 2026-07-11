@@ -2467,6 +2467,36 @@ section("Ollama endpoint coordinator wiring");
     );
 })();
 
+section("Ollama probe response limits");
+
+(function() {
+    var managerSource = fs.readFileSync(
+        path.join(__dirname, "..", "src/services/OllamaManager.qml"),
+        "utf8"
+    );
+    var cappedProbeCalls = managerSource.match(
+        /command = _probeCommand\("\/api\/(?:tags|ps)"\)/g
+    ) || [];
+    assertEqual(cappedProbeCalls.length, 3,
+        "readiness, discovery, and GPU collectors all use the capped command");
+    assert(
+        managerSource.indexOf('"--max-filesize"') >= 0,
+        "Ollama probes enforce an explicit curl response cap"
+    );
+    assert(
+        managerSource.indexOf(".data.byteLength") >= 0,
+        "Ollama probe diagnostics count raw collector bytes"
+    );
+    assert(
+        managerSource.indexOf("exitCode === root._curlFileSizeExceededExitCode") >= 0,
+        "Ollama probe overflow uses curl's deterministic exit status"
+    );
+    assert(
+        managerSource.indexOf("text.length > root._probeResponseLimitBytes") < 0,
+        "Ollama probe caps do not use decoded character length"
+    );
+})();
+
 // ─── Summary ───────────────────────────────────────────────────
 
 console.log("\n" + "=".repeat(50));
