@@ -886,9 +886,13 @@ section("Providers.buildCurlCommand");
     assert(r.body.indexOf("alt=sse") >= 0, "requests SSE format");
     assert(r.cmd.join(" ").indexOf("x-goog-api-key") < 0, "Gemini key NOT in cmd args");
 
-    // Custom provider delegates to openai
+    // Custom provider uses the OpenAI-compatible request shape over HTTPS
+    payload.provider = "custom";
+    payload.baseUrl = "https://custom.example/v2";
+    payload.model = "custom-model";
     r = Providers.buildCurlCommand("custom", payload, "custom-key");
     assert(r !== null, "Custom provider builds");
+    assertEqual(r.error, undefined, "Custom HTTPS provider has no transport error");
 
     // Key sanitization — dirty key still builds, no control chars leak
     r = Providers.buildCurlCommand("openai", payload, "sk-test\r\n\x00injected");
@@ -896,6 +900,100 @@ section("Providers.buildCurlCommand");
     assert(r.body.indexOf("\r") < 0, "no CR in config body");
     // Note: \\n in config is the escaped literal, not an actual newline
     assert(r.body.indexOf("sk-testinjected") >= 0, "sanitized key in config");
+})();
+
+section("Providers.buildRequest — custom transport policy");
+(function() {
+    var payload = {
+        provider: "custom", baseUrl: "https://remote.example/v2",
+        model: "o1_custom", messages: [{ role: "user", content: "private body" }],
+        temperature: 0.5, max_tokens: 4096, stream: true, timeout: 60
+    };
+    var secret = "custom-secret";
+    var r = Providers.buildCurlCommand("custom", payload, secret);
+    var body = parseCurlConfigBody(r.body);
+    assertEqual(r.error, undefined, "allows custom HTTPS endpoint");
+    assertEqual(body.temperature, 0.5,
+        "custom model names do not inherit OpenAI o1/o3 temperature restrictions");
+
+    payload.provider = "openai";
+    payload.baseUrl = "https://api.openai.com";
+    r = Providers.buildCurlCommand("openai", payload, secret);
+    body = parseCurlConfigBody(r.body);
+    assertEqual(body.temperature, undefined,
+        "OpenAI model-name restrictions remain active for OpenAI");
+
+    payload.provider = "custom";
+    var allowedHttp = [
+        "http://localhost",
+        "http://LOCALHOST:8080/v2",
+        "http://127.0.0.0",
+        "http://127.0.0.1:1",
+        "http://127.42.17.9/v2",
+        "http://127.255.255.255:65535"
+    ];
+    for (var ai = 0; ai < allowedHttp.length; ai++) {
+        payload.baseUrl = allowedHttp[ai];
+        r = Providers.buildCurlCommand("custom", payload, secret);
+        assert(r && !r.error && r.body,
+            "allows exact custom HTTP loopback endpoint " + allowedHttp[ai]);
+    }
+
+    var rejectedHttp = [
+        "http://example.com",
+        "http://192.168.1.4:8080",
+        "http://126.255.255.255",
+        "http://128.0.0.1",
+        "http://localhost.example.com",
+        "http://localhost.",
+        "http://127.0.0.1.example.com"
+    ];
+    var transportError = "Custom provider HTTP is allowed only for localhost or 127.0.0.0/8; use HTTPS for remote endpoints.";
+    for (var ri = 0; ri < rejectedHttp.length; ri++) {
+        payload.baseUrl = rejectedHttp[ri];
+        r = Providers.buildCurlCommand("custom", payload, secret);
+        assertEqual(r.error, transportError,
+            "rejects non-loopback custom HTTP endpoint " + rejectedHttp[ri]);
+        assertEqual(r.cmd, undefined, "rejected endpoint has no curl command");
+        assertEqual(r.body, undefined, "rejected endpoint has no curl config body");
+        assert(JSON.stringify(r).indexOf(secret) < 0,
+            "transport error does not expose the API key");
+        assert(JSON.stringify(r).indexOf("private body") < 0,
+            "transport error does not expose the conversation");
+    }
+
+    var malformed = [
+        "http://127.0.0",
+        "http://127.0.0.256",
+        "http://127..0.1",
+        "http://127.00.0.1",
+        "http://127.0.0.1:abc",
+        "http://127.0.0.1:65536",
+        "https://127.0.0.999"
+    ];
+    for (var mi = 0; mi < malformed.length; mi++) {
+        payload.baseUrl = malformed[mi];
+        r = Providers.buildCurlCommand("custom", payload, secret);
+        assert(r && r.error, "rejects malformed custom endpoint " + malformed[mi]);
+        assertEqual(r.cmd, undefined, "malformed endpoint has no curl command");
+    }
+
+    var credentialUrls = [
+        "http://user:pass@localhost:8080",
+        "https://user@remote.example/v2"
+    ];
+    for (var ci = 0; ci < credentialUrls.length; ci++) {
+        payload.baseUrl = credentialUrls[ci];
+        r = Providers.buildCurlCommand("custom", payload, secret);
+        assertEqual(r.error, "Custom provider URLs must not include credentials.",
+            "rejects URL credentials for " + credentialUrls[ci]);
+        assertEqual(r.cmd, undefined, "credential-bearing endpoint has no curl command");
+    }
+
+    payload.baseUrl = "http://remote.example";
+    var request = Providers.buildRequest("custom", payload, secret);
+    assertEqual(request.error, transportError,
+        "pure request builder returns the deterministic transport error");
 })();
 
 section("Providers.buildRequest — system prompt handling");

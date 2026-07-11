@@ -33,6 +33,101 @@ function validateUrl(url) {
     return { valid: true, error: "" };
 }
 
+/**
+ * Validate a custom OpenAI-compatible provider base URL.
+ *
+ * Custom providers may use HTTPS on any valid hostname. Plaintext HTTP is
+ * limited to the exact localhost name or an unambiguous dotted-decimal address
+ * in 127.0.0.0/8. Userinfo is never accepted because curl would transmit it as
+ * credentials independently of the configured API key.
+ *
+ * @param {string} url - Custom provider base URL to validate.
+ * @returns {{ valid: boolean, error: string }} error is safe to show to users.
+ */
+function validateCustomProviderUrl(url) {
+    var baseValidation = validateUrl(url);
+    if (!baseValidation.valid)
+        return baseValidation;
+
+    var u = String(url || "").trim();
+    var match = u.match(/^(https?):\/\/([^\/?#]+)(?:[\/?#]|$)/i);
+    if (!match)
+        return { valid: false, error: "Invalid custom provider URL." };
+
+    var scheme = match[1].toLowerCase();
+    var authority = match[2];
+    if (authority.indexOf("@") >= 0) {
+        return {
+            valid: false,
+            error: "Custom provider URLs must not include credentials."
+        };
+    }
+
+    var host = authority;
+    var portSeparator = authority.lastIndexOf(":");
+    if (portSeparator >= 0) {
+        if (authority.indexOf(":") !== portSeparator)
+            return { valid: false, error: "Invalid hostname in custom provider URL." };
+        host = authority.slice(0, portSeparator);
+        var port = authority.slice(portSeparator + 1);
+        if (!/^\d+$/.test(port) || Number(port) > 65535) {
+            return { valid: false, error: "Invalid port in custom provider URL." };
+        }
+    }
+
+    var ipv4 = _parseIpv4Address(host);
+    if (!ipv4 && !_isValidHostname(host))
+        return { valid: false, error: "Invalid hostname in custom provider URL." };
+
+    if (scheme === "http"
+            && host.toLowerCase() !== "localhost"
+            && !(ipv4 && ipv4[0] === 127)) {
+        return {
+            valid: false,
+            error: "Custom provider HTTP is allowed only for localhost or 127.0.0.0/8; use HTTPS for remote endpoints."
+        };
+    }
+    return { valid: true, error: "" };
+}
+
+function _parseIpv4Address(host) {
+    var text = String(host || "");
+    if (!/^[0-9.]+$/.test(text))
+        return null;
+    var parts = text.split(".");
+    if (parts.length !== 4)
+        return null;
+    var octets = [];
+    for (var i = 0; i < parts.length; i++) {
+        var part = parts[i];
+        if (!/^\d{1,3}$/.test(part)
+                || (part.length > 1 && part.charAt(0) === "0"))
+            return null;
+        var value = Number(part);
+        if (value > 255)
+            return null;
+        octets.push(value);
+    }
+    return octets;
+}
+
+function _isValidHostname(host) {
+    var text = String(host || "");
+    if (!text || text.length > 253 || /^[0-9.]+$/.test(text))
+        return false;
+    if (text.charAt(text.length - 1) === ".")
+        text = text.slice(0, -1);
+    if (!text)
+        return false;
+    var labels = text.split(".");
+    for (var i = 0; i < labels.length; i++) {
+        var label = labels[i];
+        if (!/^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$/.test(label))
+            return false;
+    }
+    return true;
+}
+
 // Unicode 17 Default_Ignorable_Code_Point ranges, plus line separators,
 // interlinear annotation controls, and unpaired surrogates that can change
 // when a JavaScript string is encoded for process argv.
@@ -149,13 +244,18 @@ function escapeCurlConfig(str) {
  * @param {string} provider - Provider identifier.
  * @param {Object} payload - Request payload (must include baseUrl, model, messages, timeout, etc.).
  * @param {string} apiKey - Resolved API key (may be empty for Ollama).
- * @returns {{ cmd: string[], body: string } | null}
+ * @returns {{ cmd: string[], body: string } | { error: string } | null}
  *   cmd: curl argument array (no secrets). body: curl config string to write to stdin.
- *   Returns null if the provider requires a key but none is provided.
+ *   Returns an error-only object for a rejected endpoint, or null if the
+ *   provider requires a key but none is provided.
  */
 function buildCurlCommand(provider, payload, apiKey) {
     var request = buildRequest(provider, payload, apiKey);
-    if (!request || !request.url)
+    if (!request)
+        return null;
+    if (request.error)
+        return { error: request.error };
+    if (!request.url)
         return null;
 
     var timeout = payload.timeout || 30;
@@ -279,11 +379,15 @@ function normalizeOllamaThinkingMode(mode) {
 }
 
 function openaiRequest(payload, apiKey) {
+    return _openaiCompatibleRequest(payload, apiKey, "openai");
+}
+
+function _openaiCompatibleRequest(payload, apiKey, provider) {
     var url = openaiChatCompletionsUrl(payload.baseUrl || "https://api.openai.com");
     var safeKey = sanitizeApiKey(apiKey);
     if (!safeKey) return null;
     var headers = ["-H", "Authorization: Bearer " + safeKey];
-    var temp = clampTemperature("openai", payload.model, payload.temperature);
+    var temp = clampTemperature(provider, payload.model, payload.temperature);
     var body = {
         model: payload.model,
         messages: payload.messages,
@@ -378,7 +482,11 @@ function geminiRequest(payload, apiKey) {
 }
 
 function customRequest(payload, apiKey) {
-    return openaiRequest(payload, apiKey);
+    var validation = validateCustomProviderUrl(
+        payload.baseUrl || registry["custom"].defaultUrl);
+    if (!validation.valid)
+        return { error: validation.error };
+    return _openaiCompatibleRequest(payload, apiKey, "custom");
 }
 
 // ─── Provider Registry ──────────────────────────────────────────

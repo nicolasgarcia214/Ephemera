@@ -82,6 +82,20 @@ ShellRoot {
                 && service.messagesModel.count === 1,
                 "same-provider selection cleared chat more than once")) return;
 
+        if (!check(service.setProvider("custom"),
+                "coordinator rejected the custom provider test setup")) return;
+        service.baseUrl = "http://remote.example.test";
+        service.model = "custom-model";
+        service.sendMessage("private custom-provider request");
+        var transportError = "Custom provider HTTP is allowed only for localhost or 127.0.0.0/8; use HTTPS for remote endpoints.";
+        if (!check(service.lastRequestFailed
+                && !service.isStreaming
+                && service.messagesModel.count === 2
+                && service.messagesModel.get(1).status === "error"
+                && service.messagesModel.get(1).content === transportError
+                && service.messagesModel.get(1).requestPayload === "",
+                "custom HTTP transport rejection was not reported before launch")) return;
+
         service.setOllamaContextWindow(32768);
         if (!check(service.ollamaContextWindow === 32768
                 && PluginService.loadPluginData(
