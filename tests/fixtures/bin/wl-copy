@@ -6,7 +6,17 @@ if [ "$#" -ne 1 ] || [ "$1" != "--" ]; then
     exit 64
 fi
 
-body=$(cat)
+body_file=$(mktemp "$XDG_RUNTIME_DIR/ephemera-wl-copy.XXXXXX")
+trap 'rm -f "$body_file"' EXIT
+cat > "$body_file"
+
+body_size=$(wc -c < "$body_file")
+if [ "$body_size" -gt 262144 ] \
+        && [ "$(tail -c 17 "$body_file")" = "OVERSIZED_MESSAGE" ]; then
+    exit 0
+fi
+
+body=$(cat "$body_file")
 case "$body" in
     CLIPBOARD_SUCCESS)
         exit 0
@@ -15,6 +25,16 @@ case "$body" in
         exit 23
         ;;
     CLIPBOARD_SLOW)
+        sleep 1
+        exit 0
+        ;;
+    MESSAGE_SECRET_TEXT)
+        exit 0
+        ;;
+    MESSAGE_FAIL)
+        exit 23
+        ;;
+    MESSAGE_SLOW)
         sleep 1
         exit 0
         ;;

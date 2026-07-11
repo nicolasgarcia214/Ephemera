@@ -9,6 +9,7 @@ ShellRoot {
     property string phase: "clipboard-success"
     property bool finished: false
     property bool overlapRejected: false
+    property bool messageOverlapRejected: false
     property var seenExportIds: ({})
     readonly property string runtimeDir: Quickshell.env("XDG_RUNTIME_DIR")
 
@@ -90,6 +91,36 @@ ShellRoot {
             finish(false, "overlapping file export was accepted");
     }
 
+    function startMessageSuccess() {
+        phase = "message-success";
+        if (!streaming.copyMessageToClipboard(
+                "assistant-secret", "MESSAGE_SECRET_TEXT"))
+            finish(false, "message clipboard fixture was rejected");
+    }
+
+    function startMessageFailure() {
+        phase = "message-nonzero";
+        if (!streaming.copyMessageToClipboard("assistant-fail", "MESSAGE_FAIL"))
+            finish(false, "message failure fixture was rejected");
+    }
+
+    function startOversizedMessage() {
+        phase = "message-oversized";
+        var oversized = new Array(300001).join("x") + "OVERSIZED_MESSAGE";
+        if (!streaming.copyMessageToClipboard("assistant-oversized", oversized))
+            finish(false, "oversized message fixture was rejected");
+    }
+
+    function startMessageConversationOverlap() {
+        phase = "message-conversation-overlap";
+        if (!streaming.copyMessageToClipboard("assistant-slow", "MESSAGE_SLOW")) {
+            finish(false, "message overlap fixture could not start");
+            return;
+        }
+        if (streaming.exportToClipboard("CLIPBOARD_SUCCESS"))
+            finish(false, "conversation copy overlapped an active message copy");
+    }
+
     Component.onCompleted: Qt.callLater(startClipboardSuccess)
 
     Timer {
@@ -134,7 +165,7 @@ ShellRoot {
             } else if (root.phase === "overlap") {
                 if (!root.check(exportKind === "clipboard" && root.overlapRejected,
                                 "overlap completion was misattributed")) return;
-                root.finish(true, "clipboard/file success, nonzero exit, failed start, stdin payload, mode 0600, identities, and overlap rejection passed");
+                Qt.callLater(root.startMessageSuccess);
             } else {
                 root.finish(false, "unexpected export success during " + root.phase);
             }
@@ -168,10 +199,48 @@ ShellRoot {
                                 && message.indexOf("already in progress") >= 0,
                                 "overlapping export did not receive explicit feedback")) return;
                 root.overlapRejected = true;
+            } else if (root.phase === "message-conversation-overlap") {
+                if (!root.check(exportKind === "clipboard"
+                                && message.indexOf("already in progress") >= 0,
+                                "overlapping conversation copy was not rejected")) return;
+                root.messageOverlapRejected = true;
             } else {
                 root.finish(false, "unexpected export failure during " + root.phase
                             + ": " + message);
             }
+        }
+
+        onMessageCopySucceeded: messageId => {
+            if (!root.check(!streaming.exportBusy,
+                            "message success did not clear busy state before signaling")) return;
+            if (root.phase === "message-success") {
+                if (!root.check(messageId === "assistant-secret",
+                                "message success lost its identity")) return;
+                Qt.callLater(root.startMessageFailure);
+            } else if (root.phase === "message-oversized") {
+                if (!root.check(messageId === "assistant-oversized",
+                                "oversized message success lost its identity")) return;
+                Qt.callLater(root.startMessageConversationOverlap);
+            } else if (root.phase === "message-conversation-overlap") {
+                if (!root.check(messageId === "assistant-slow"
+                                && root.messageOverlapRejected,
+                                "message completion was confused with rejected conversation copy")) return;
+                root.finish(true, "conversation/file/message success, truthful failures, stdin-only oversized payloads, mode 0600, identities, and overlap rejection passed");
+            } else {
+                root.finish(false, "unexpected message success during " + root.phase);
+            }
+        }
+
+        onMessageCopyFailed: (messageId, message) => {
+            if (root.phase !== "message-nonzero") {
+                root.finish(false, "unexpected message failure during " + root.phase
+                            + ": " + message);
+                return;
+            }
+            if (!root.check(messageId === "assistant-fail"
+                            && message.indexOf("exit code 23") >= 0,
+                            "message failure was not truthful or identity-bound")) return;
+            Qt.callLater(root.startOversizedMessage);
         }
     }
 }

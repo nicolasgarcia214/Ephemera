@@ -17,6 +17,7 @@ Item {
     signal regenerateRequested
     signal variantChangeRequested(string msgId, int newIndex)
     signal editRequested(string msgId, string newText)
+    signal copyRequested(string msgId)
 
     function scrollToBottom() {
         stickToBottom = true;
@@ -101,9 +102,11 @@ Item {
                 streamStats: model.streamStats || ""
                 isLocalProvider: root.isLocalProvider
                 requestPayload: model.requestPayload || ""
+                copyStatus: model.copyStatus || ""
                 onRegenerateRequested: root.regenerateRequested()
                 onVariantChangeRequested: newIndex => root.variantChangeRequested(model.id, newIndex)
                 onEditRequested: newText => root.editRequested(model.id, newText)
+                onCopyRequested: root.copyRequested(model.id)
             }
         }
     }
