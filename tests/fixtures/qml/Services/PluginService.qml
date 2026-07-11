@@ -3,7 +3,9 @@ pragma Singleton
 import QtQuick
 
 QtObject {
-    property var _data: ({})
+    property var _data: ({
+        "ephemera:ollamaUrl": "http://127.0.0.1:11434"
+    })
 
     signal pluginDataChanged(string pluginId)
 

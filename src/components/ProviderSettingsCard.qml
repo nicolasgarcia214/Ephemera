@@ -65,8 +65,7 @@ SettingsCard {
                     var result = Providers.validateUrl(url);
                     if (!result.valid) { ollamaUrlError.text = result.error; return; }
                     ollamaUrlError.text = "";
-                    aiService.ollamaUrl = url;
-                    aiService.saveSettingValue("ollamaUrl", url);
+                    aiService.setOllamaUrl(url);
                 }
             }
             StyledText {

@@ -2095,6 +2095,23 @@ section("Ollama process identity");
     );
 })();
 
+section("Ollama endpoint coordinator wiring");
+
+(function() {
+    var settingsSource = fs.readFileSync(
+        path.join(__dirname, "..", "src/components/ProviderSettingsCard.qml"),
+        "utf8"
+    );
+    assert(
+        settingsSource.indexOf("aiService.setOllamaUrl(url)") >= 0,
+        "provider settings apply Ollama URLs through the coordinator API"
+    );
+    assert(
+        settingsSource.indexOf("aiService.ollamaUrl = url") < 0,
+        "provider settings do not directly mutate the Ollama discovery identity"
+    );
+})();
+
 // ─── Summary ───────────────────────────────────────────────────
 
 console.log("\n" + "=".repeat(50));

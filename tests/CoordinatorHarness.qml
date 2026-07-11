@@ -25,6 +25,10 @@ ShellRoot {
     }
 
     function runChecks() {
+        if (!check(service.ollamaUrl === "http://127.0.0.1:11434"
+                && service.baseUrl === "http://127.0.0.1:11434",
+                "initial Ollama URL load did not synchronize endpoint identities")) return;
+
         service.messagesModel.append({
             role: "user", content: "private Ollama context", thinking: "",
             id: "user-test", timestamp: 1, status: "ok",
@@ -36,6 +40,22 @@ ShellRoot {
             "assistant-test": [{ content: "private variant", thinking: "" }]
         });
         service.lastUserText = "private Ollama context";
+
+        if (!check(service.setOllamaUrl("http://localhost:11434"),
+                "coordinator rejected a valid Ollama URL")) return;
+        var nextPayload = service._buildPayload("next private turn");
+        if (!check(service.ollamaUrl === "http://localhost:11434"
+                && service.baseUrl === "http://localhost:11434"
+                && nextPayload.baseUrl === "http://localhost:11434",
+                "local Ollama URL change left the next request on the old endpoint")) return;
+        if (!check(service.messagesModel.count === 1
+                && service.lastUserText === "private Ollama context"
+                && service.messageIndexMap["user-test"] === 0
+                && service.variantStore["assistant-test"][0].content === "private variant",
+                "same-provider Ollama URL change cleared conversation state")) return;
+        if (!check(PluginService.loadPluginData(
+                    "ephemera", "ollamaUrl", "") === "http://localhost:11434",
+                "local Ollama URL change was not persisted")) return;
 
         if (!check(service.setProvider("openai"),
                 "coordinator rejected a real provider change")) return;
@@ -96,7 +116,25 @@ ShellRoot {
                     "ephemera", "chatVariants", "missing") === "",
                 "external provider change did not clear persisted chat")) return;
 
-        finish(true, "provider changes are transactional, reentrancy-safe, and context is persisted");
+        service.messagesModel.append({
+            role: "user", content: "same-provider external URL context", thinking: "",
+            id: "user-test-4", timestamp: 4, status: "ok",
+            variantIndex: 0, variantCount: 1, modelName: "", streamStats: "",
+            requestPayload: ""
+        });
+        PluginService.savePluginData(
+            "ephemera", "ollamaUrl", "http://127.0.0.1:11434");
+        var externalPayload = service._buildPayload("next external turn");
+        if (!check(service.ollamaUrl === "http://127.0.0.1:11434"
+                && service.baseUrl === "http://127.0.0.1:11434"
+                && externalPayload.baseUrl === "http://127.0.0.1:11434"
+                && service.messagesModel.count === 1
+                && service.messagesModel.get(0).content
+                    === "same-provider external URL context"
+                && service._loadingSettings === false,
+                "external Ollama URL change was inconsistent or reentrant")) return;
+
+        finish(true, "provider and Ollama endpoint changes are transactional and reentrancy-safe");
     }
 
     Component.onCompleted: Qt.callLater(runChecks)

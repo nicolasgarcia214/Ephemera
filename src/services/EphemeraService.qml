@@ -256,7 +256,8 @@ Item {
             clearChat();
 
         _provider = nextProvider;
-        ollamaUrl = String(PluginService.loadPluginData(pluginId, "ollamaUrl", "http://localhost:11434")).trim();
+        setOllamaUrl(PluginService.loadPluginData(
+            pluginId, "ollamaUrl", "http://localhost:11434"), false);
         ollamaThinkingMode = Providers.normalizeOllamaThinkingMode(PluginService.loadPluginData(pluginId, "ollamaThinkingMode", "default"));
         ollamaContextWindow = Providers.normalizeOllamaContextWindow(
             PluginService.loadPluginData(pluginId, "ollamaContextWindow", 0));
@@ -338,6 +339,23 @@ Item {
         _provider = next;
         saveSettingValue("provider", next);
         updateBaseUrl();
+        return true;
+    }
+
+    function setOllamaUrl(url, persistChange) {
+        var next = String(url || "").trim();
+        if (!Providers.validateUrl(next).valid)
+            return false;
+
+        var changed = next !== ollamaUrl;
+        ollamaUrl = next;
+        if (provider === "ollama")
+            baseUrl = next;
+
+        // PluginService emits synchronously, so persist only after every
+        // request and discovery consumer has received the new identity.
+        if (persistChange !== false && changed)
+            saveSettingValue("ollamaUrl", next);
         return true;
     }
 
