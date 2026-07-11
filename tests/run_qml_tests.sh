@@ -31,6 +31,7 @@ cp "$ROOT/tests/ProviderIsolationHarness.qml" "$CONFIG_DIR/ProviderIsolationHarn
 cp "$ROOT/tests/CoordinatorHarness.qml" "$CONFIG_DIR/CoordinatorHarness.qml"
 cp "$ROOT/tests/PersistenceHarness.qml" "$CONFIG_DIR/PersistenceHarness.qml"
 cp "$ROOT/tests/OllamaLifecycleHarness.qml" "$CONFIG_DIR/OllamaLifecycleHarness.qml"
+cp "$ROOT/tests/OllamaProbeLimitHarness.qml" "$CONFIG_DIR/OllamaProbeLimitHarness.qml"
 cp "$ROOT/tests/fixtures/qml/Common/"* "$CONFIG_DIR/Common/"
 cp "$ROOT/tests/fixtures/qml/Services/"* "$CONFIG_DIR/Services/"
 cp "$ROOT/src/services/EphemeraService.qml" "$CONFIG_DIR/src/services/EphemeraService.qml"
@@ -202,9 +203,20 @@ run_ollama_lifecycle_harness() {
     unset EPHEMERA_OLLAMA_LIFECYCLE_DIR
 }
 
+run_ollama_probe_limit_harness() {
+    probe_dir="$RUNTIME_DIR/ollama-probe-limit"
+    mkdir -p "$probe_dir"
+    chmod 700 "$probe_dir"
+    EPHEMERA_OLLAMA_PROBE_DIR="$probe_dir"
+    export EPHEMERA_OLLAMA_PROBE_DIR
+    run_harness OllamaProbeLimitHarness EPHEMERA_OLLAMA_PROBE_LIMIT_TEST
+    unset EPHEMERA_OLLAMA_PROBE_DIR
+}
+
 run_harness McpServiceHarness EPHEMERA_MCP_QML_TEST
 run_harness McpApprovalHarness EPHEMERA_MCP_APPROVAL_TEST
 run_harness ProviderIsolationHarness EPHEMERA_PROVIDER_ISOLATION_TEST
 run_harness CoordinatorHarness EPHEMERA_COORDINATOR_TEST
 run_harness PersistenceHarness EPHEMERA_PERSISTENCE_TEST
 run_ollama_lifecycle_harness
+run_ollama_probe_limit_harness

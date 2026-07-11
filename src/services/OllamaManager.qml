@@ -18,6 +18,11 @@ Item {
     property bool ollamaReady: false
     property int ollamaRetries: 0
     readonly property int ollamaMaxRetries: 15
+    // curl enforces this against transferred bytes before StdioCollector retains
+    // the response. QML string lengths are decoded UTF-16 code units and are not
+    // suitable for enforcing a raw byte limit on multi-byte output.
+    readonly property int _probeResponseLimitBytes: 64 * 1024
+    readonly property int _curlFileSizeExceededExitCode: 63
     property bool _shuttingDown: false
     property bool _terminationPending: false
     property bool _restartAfterExit: false
@@ -33,8 +38,17 @@ Item {
     property int _gpuGeneration: -1
     property int _ollamaPid: -1
     property int ollamaIdleMinutes: 5
+    property string readinessError: ""
     property string discoveryError: ""
+    property string gpuError: ""
+    readonly property string probeError: readinessError || discoveryError || gpuError
     property string gpuLabel: ""
+    property int _lastPingResponseBytes: 0
+    property int _lastPingResponseCharacters: 0
+    property int _lastDiscoveryResponseBytes: 0
+    property int _lastDiscoveryResponseCharacters: 0
+    property int _lastGpuResponseBytes: 0
+    property int _lastGpuResponseCharacters: 0
 
     signal modelDiscovered(string name)
     signal modelAutoSelected(string name)
@@ -103,13 +117,14 @@ Item {
         }
         _discoveryPending = false;
         _discoveryGeneration = _lifecycleGeneration;
-        modelDiscovery.command = ["curl", "-s", "--connect-timeout", "2", ollamaUrl + "/api/tags"];
+        modelDiscovery.command = _probeCommand("/api/tags");
         _discoveryProcessActive = true;
         modelDiscovery.running = true;
     }
 
     function queryGpuStatus(modelName) {
         if (!active || !ollamaReady || !modelName || !_isUrlSafe()) return;
+        gpuError = "";
         if (_gpuProcessActive) {
             _pendingGpuModel = modelName;
             if (gpuQuery.running)
@@ -119,7 +134,7 @@ Item {
         _pendingGpuModel = "";
         _gpuQueryModel = modelName;
         _gpuGeneration = _lifecycleGeneration;
-        gpuQuery.command = ["curl", "-s", "--connect-timeout", "2", ollamaUrl + "/api/ps"];
+        gpuQuery.command = _probeCommand("/api/ps");
         _gpuProcessActive = true;
         gpuQuery.running = true;
     }
@@ -141,6 +156,78 @@ Item {
     }
 
     // --- Internal ---
+
+    function _probeCommand(path) {
+        return ["curl", "-s", "--connect-timeout", "2", "--max-filesize",
+            String(_probeResponseLimitBytes), ollamaUrl + path];
+    }
+
+    function _overflowError(probeName) {
+        return "Ollama " + probeName + " response exceeded the "
+            + _probeResponseLimitBytes + "-byte limit.";
+    }
+
+    function _handlePingOutput(output) {
+        try {
+            var data = JSON.parse(output);
+            if (data && data.models !== undefined) {
+                ollamaReady = true;
+                readinessError = "";
+                if (!ollamaWeStarted && !ollamaStartPending)
+                    ollamaExternallyManaged = true;
+                discoverModels();
+                return;
+            }
+        } catch (e) {
+            console.warn("Ephemera: Ollama ping parse error:", e);
+        }
+        _handlePingFailed();
+    }
+
+    function _handleDiscoveryOutput(output) {
+        try {
+            var data = JSON.parse(output);
+            var models = data.models || [];
+            availableModels.clear();
+            for (var i = 0; i < models.length; i++) {
+                var name = models[i].name || "";
+                availableModels.append({ name: name, displayName: "ollama:" + name });
+            }
+            if (availableModels.count > 0)
+                modelAutoSelected(availableModels.get(0).name);
+        } catch (e) {
+            console.warn("Ephemera: model discovery parse error:", e);
+            discoveryError = "Failed to parse model list from Ollama.";
+        }
+    }
+
+    function _handleGpuOutput(output) {
+        try {
+            var data = JSON.parse(output);
+            var models = data.models || [];
+            for (var i = 0; i < models.length; i++) {
+                var m = models[i];
+                if (m.name !== _gpuQueryModel && m.model !== _gpuQueryModel)
+                    continue;
+                var total = m.size || 0;
+                var vram = m.size_vram || 0;
+                if (total <= 0) break;
+                var families = (m.details && m.details.families) || [];
+                var isMoE = families.some(function(f) { return f.toLowerCase().indexOf("moe") !== -1; });
+                var pct = Math.round(vram / total * 100);
+                if (pct >= 100 || (isMoE && pct > 0))
+                    gpuLabel = "GPU";
+                else if (pct > 0)
+                    gpuLabel = pct + "% GPU";
+                else
+                    gpuLabel = "CPU";
+                gpuStatusReady(gpuLabel);
+                return;
+            }
+        } catch (e) {
+            console.warn("Ephemera: GPU status query parse error:", e);
+        }
+    }
 
     function _clearOwnership() {
         _ollamaPid = -1;
@@ -219,6 +306,7 @@ Item {
 
     function ping() {
         if (!active || _terminationPending || !_isUrlSafe()) return;
+        readinessError = "";
         if (_pingProcessActive) {
             if (_pingGeneration !== _lifecycleGeneration) {
                 _probePending = true;
@@ -229,7 +317,7 @@ Item {
         }
         _probePending = false;
         _pingGeneration = _lifecycleGeneration;
-        ollamaPing.command = ["curl", "-s", "--connect-timeout", "2", ollamaUrl + "/api/tags"];
+        ollamaPing.command = _probeCommand("/api/tags");
         _pingProcessActive = true;
         ollamaPing.running = true;
     }
@@ -308,31 +396,23 @@ Item {
         id: ollamaPing
         running: false
         stdout: StdioCollector {
-            onStreamFinished: {
-                if (!root.active
-                        || root._pingGeneration !== root._lifecycleGeneration)
-                    return;
-                try {
-                    var data = JSON.parse(text);
-                    if (data && data.models !== undefined) {
-                        root.ollamaReady = true;
-                        if (!root.ollamaWeStarted && !root.ollamaStartPending)
-                            root.ollamaExternallyManaged = true;
-                        root.discoverModels();
-                        return;
-                    }
-                } catch (e) {
-                    console.warn("Ephemera: Ollama ping parse error:", e);
-                }
-                root._handlePingFailed();
-            }
+            id: ollamaPingOutput
         }
         onExited: exitCode => {
             root._pingProcessActive = false;
+            root._lastPingResponseBytes = ollamaPingOutput.data.byteLength;
+            root._lastPingResponseCharacters = ollamaPingOutput.text.length;
             var current = root.active
                 && root._pingGeneration === root._lifecycleGeneration;
-            if (exitCode !== 0 && current)
+            if (current && exitCode === root._curlFileSizeExceededExitCode) {
+                root.ollamaReady = false;
+                root.ollamaExternallyManaged = false;
+                root.readinessError = root._overflowError("readiness");
+            } else if (current && exitCode === 0) {
+                root._handlePingOutput(ollamaPingOutput.text);
+            } else if (current) {
                 root._handlePingFailed();
+            }
             if (root._probePending && root.active && !root._terminationPending)
                 Qt.callLater(root.ping);
         }
@@ -342,28 +422,18 @@ Item {
         id: modelDiscovery
         running: false
         stdout: StdioCollector {
-            onStreamFinished: {
-                if (!root.active || root._discoveryGeneration
-                        !== root._lifecycleGeneration)
-                    return;
-                try {
-                    var data = JSON.parse(text);
-                    var models = data.models || [];
-                    root.availableModels.clear();
-                    for (var i = 0; i < models.length; i++) {
-                        var name = models[i].name || "";
-                        root.availableModels.append({ name: name, displayName: "ollama:" + name });
-                    }
-                    if (root.availableModels.count > 0)
-                        root.modelAutoSelected(root.availableModels.get(0).name);
-                } catch (e) {
-                    console.warn("Ephemera: model discovery parse error:", e);
-                    root.discoveryError = "Failed to parse model list from Ollama.";
-                }
-            }
+            id: modelDiscoveryOutput
         }
         onExited: exitCode => {
             root._discoveryProcessActive = false;
+            root._lastDiscoveryResponseBytes = modelDiscoveryOutput.data.byteLength;
+            root._lastDiscoveryResponseCharacters = modelDiscoveryOutput.text.length;
+            var current = root.active && root._discoveryGeneration
+                === root._lifecycleGeneration;
+            if (current && exitCode === root._curlFileSizeExceededExitCode)
+                root.discoveryError = root._overflowError("model discovery");
+            else if (current && exitCode === 0)
+                root._handleDiscoveryOutput(modelDiscoveryOutput.text);
             if (root._discoveryPending && root.active) {
                 root._discoveryPending = false;
                 Qt.callLater(root.discoverModels);
@@ -375,39 +445,18 @@ Item {
         id: gpuQuery
         running: false
         stdout: StdioCollector {
-            onStreamFinished: {
-                if (!root.active
-                        || root._gpuGeneration !== root._lifecycleGeneration)
-                    return;
-                try {
-                    var data = JSON.parse(text);
-                    var models = data.models || [];
-                    for (var i = 0; i < models.length; i++) {
-                        var m = models[i];
-                        if (m.name !== root._gpuQueryModel && m.model !== root._gpuQueryModel)
-                            continue;
-                        var total = m.size || 0;
-                        var vram = m.size_vram || 0;
-                        if (total <= 0) break;
-                        var families = (m.details && m.details.families) || [];
-                        var isMoE = families.some(function(f) { return f.toLowerCase().indexOf("moe") !== -1; });
-                        var pct = Math.round(vram / total * 100);
-                        if (pct >= 100 || (isMoE && pct > 0))
-                            root.gpuLabel = "GPU";
-                        else if (pct > 0)
-                            root.gpuLabel = pct + "% GPU";
-                        else
-                            root.gpuLabel = "CPU";
-                        root.gpuStatusReady(root.gpuLabel);
-                        return;
-                    }
-                } catch (e) {
-                    console.warn("Ephemera: GPU status query parse error:", e);
-                }
-            }
+            id: gpuQueryOutput
         }
         onExited: exitCode => {
             root._gpuProcessActive = false;
+            root._lastGpuResponseBytes = gpuQueryOutput.data.byteLength;
+            root._lastGpuResponseCharacters = gpuQueryOutput.text.length;
+            var current = root.active
+                && root._gpuGeneration === root._lifecycleGeneration;
+            if (current && exitCode === root._curlFileSizeExceededExitCode)
+                root.gpuError = root._overflowError("GPU status");
+            else if (current && exitCode === 0)
+                root._handleGpuOutput(gpuQueryOutput.text);
             if (root._pendingGpuModel && root.active) {
                 var pendingModel = root._pendingGpuModel;
                 root._pendingGpuModel = "";

@@ -3,18 +3,114 @@ set -eu
 
 endpoint=""
 endpoint_url=""
+max_filesize=""
+read_max_filesize=0
 for argument do
+    if [ "$read_max_filesize" -eq 1 ]; then
+        max_filesize=$argument
+        read_max_filesize=0
+        continue
+    fi
+    if [ "$argument" = "--max-filesize" ]; then
+        read_max_filesize=1
+        continue
+    fi
     case "$argument" in
-        http://localhost:11434/api/tags|http://127.0.0.1:11434/api/tags)
+        http://localhost:11434/api/tags|http://127.0.0.*:11434/api/tags)
             endpoint="tags"
             endpoint_url=$argument
             ;;
-        http://localhost:11434/api/ps|http://127.0.0.1:11434/api/ps)
+        http://localhost:11434/api/ps|http://127.0.0.*:11434/api/ps)
             endpoint="ps"
             endpoint_url=$argument
             ;;
     esac
 done
+
+emit_exact_json() {
+    prefix=$1
+    suffix='"}'
+    prefix_bytes=$(printf '%s' "$prefix" | wc -c | tr -d ' ')
+    suffix_bytes=$(printf '%s' "$suffix" | wc -c | tr -d ' ')
+    padding=$((65536 - prefix_bytes - suffix_bytes))
+    printf '%s' "$prefix"
+    if [ $((padding % 2)) -eq 1 ]; then
+        printf 'x'
+        padding=$((padding - 1))
+    fi
+    LC_ALL=C awk -v pairs="$((padding / 2))" \
+        'BEGIN { for (i = 0; i < pairs; i++) printf "%c%c", 195, 169 }'
+    printf '%s' "$suffix"
+}
+
+emit_probe_response() {
+    mode=$1
+    probe=$2
+    case "$mode:$probe" in
+        normal:tags)
+            printf '{"models":[{"name":"normal-model"}]}\n'
+            ;;
+        normal:ps)
+            printf '{"models":[{"name":"normal-model","size":100,"size_vram":100}]}\n'
+            ;;
+        exact:tags)
+            emit_exact_json '{"models":[{"name":"exact-model"}],"padding":"'
+            ;;
+        exact:ps)
+            emit_exact_json '{"models":[{"name":"exact-model","size":100,"size_vram":100}],"padding":"'
+            ;;
+        overflow:*)
+            emit_exact_json '{"models":[],"padding":"'
+            exit 63
+            ;;
+        discovery:tags)
+            count_file="$EPHEMERA_OLLAMA_PROBE_DIR/discovery-count"
+            count=0
+            if [ -f "$count_file" ]; then
+                count=$(cat "$count_file")
+            fi
+            count=$((count + 1))
+            printf '%s\n' "$count" > "$count_file"
+            if [ "$count" -eq 1 ]; then
+                printf '{"models":[{"name":"discovery-model"}]}\n'
+            else
+                emit_exact_json '{"models":[],"padding":"'
+                exit 63
+            fi
+            ;;
+        gpu:tags)
+            printf '{"models":[{"name":"gpu-model"}]}\n'
+            ;;
+        gpu:ps)
+            emit_exact_json '{"models":[],"padding":"'
+            exit 63
+            ;;
+        *)
+            printf 'unexpected Ollama probe fixture mode: %s:%s\n' \
+                "$mode" "$probe" >&2
+            exit 2
+            ;;
+    esac
+}
+
+if [ -n "${EPHEMERA_OLLAMA_PROBE_DIR:-}" ]; then
+    if [ "$max_filesize" != "65536" ]; then
+        printf 'Ollama probe missing 65536-byte max-filesize: %s\n' "$*" >&2
+        exit 2
+    fi
+    case "$endpoint_url" in
+        http://127.0.0.10:11434/*) emit_probe_response normal "$endpoint" ;;
+        http://127.0.0.11:11434/*) emit_probe_response exact "$endpoint" ;;
+        http://127.0.0.12:11434/*) emit_probe_response overflow "$endpoint" ;;
+        http://127.0.0.13:11434/*) emit_probe_response discovery "$endpoint" ;;
+        http://127.0.0.14:11434/*) emit_probe_response gpu "$endpoint" ;;
+        *)
+            printf 'unexpected Ollama probe URL: %s\n' "$endpoint_url" >&2
+            exit 2
+            ;;
+    esac
+    exit 0
+fi
 
 if [ -n "${EPHEMERA_OLLAMA_LIFECYCLE_DIR:-}" ]; then
     case "$endpoint_url" in
