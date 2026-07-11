@@ -457,7 +457,7 @@ function anthropicRequest(payload, apiKey) {
 
     if (payload.thinkingEnabled && !alwaysThinking) {
         if (thinkingMode === "adaptive") {
-            body.thinking = { type: "adaptive" };
+            body.thinking = { type: "adaptive", display: "summarized" };
         } else {
             var budgetTokens = Math.max(1024, Math.floor(maxTokens * 0.8));
             body.thinking = {
