@@ -449,7 +449,8 @@ function anthropicRequest(payload, apiKey) {
     if (payload.thinkingEnabled && thinkingMode === "manual" && maxTokens <= 1024)
         maxTokens = Math.min(1025, outputCap);
     var alwaysThinking = _anthropicAlwaysThinking(payload.model);
-    var temp = (payload.thinkingEnabled || alwaysThinking)
+    var fixedSampling = _anthropicUsesFixedSampling(payload.model);
+    var temp = (payload.thinkingEnabled || alwaysThinking || fixedSampling)
         ? undefined : clampTemperature("anthropic", payload.model, payload.temperature);
     var body = {
         model: payload.model,
@@ -459,7 +460,7 @@ function anthropicRequest(payload, apiKey) {
     };
     if (temp !== undefined) body.temperature = temp;
 
-    if (payload.thinkingEnabled && !alwaysThinking) {
+    if (payload.thinkingEnabled) {
         if (thinkingMode === "adaptive") {
             body.thinking = { type: "adaptive", display: "summarized" };
         } else {
@@ -469,6 +470,8 @@ function anthropicRequest(payload, apiKey) {
                 budget_tokens: Math.min(budgetTokens, maxTokens - 1)
             };
         }
+    } else if (_anthropicNeedsExplicitThinkingDisabled(payload.model)) {
+        body.thinking = { type: "disabled" };
     }
 
     if (extracted.systemText)
@@ -486,6 +489,15 @@ function _anthropicAlwaysThinking(model) {
     return _anthropicModelMatches(model, "claude-fable-5")
         || _anthropicModelMatches(model, "claude-mythos-5")
         || _anthropicModelMatches(model, "claude-mythos-preview");
+}
+
+function _anthropicUsesFixedSampling(model) {
+    return _anthropicModelMatches(model, "claude-opus-4-8")
+        || _anthropicModelMatches(model, "claude-sonnet-5");
+}
+
+function _anthropicNeedsExplicitThinkingDisabled(model) {
+    return _anthropicModelMatches(model, "claude-sonnet-5");
 }
 
 function _anthropicThinkingMode(model) {

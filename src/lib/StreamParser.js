@@ -43,7 +43,17 @@ function _isGeminiBlockedFinishReason(reason) {
 }
 
 function _isGeminiFailedFinishReason(reason) {
-    return reason === "OTHER" || reason === "MALFORMED_FUNCTION_CALL";
+    switch (reason) {
+    case "OTHER":
+    case "MALFORMED_FUNCTION_CALL":
+    case "UNEXPECTED_TOOL_CALL":
+    case "TOO_MANY_TOOL_CALLS":
+    case "MISSING_THOUGHT_SIGNATURE":
+    case "MALFORMED_RESPONSE":
+        return true;
+    default:
+        return false;
+    }
 }
 
 function _openAiEnvelopeError(data) {

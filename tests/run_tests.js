@@ -346,10 +346,17 @@ section("StreamParser.parseDelta — provider errors and refusals");
     }), "gemini");
     assert(r.error.indexOf("blocked") >= 0, "detects Gemini blocked candidate");
 
-    r = StreamParser.parseDelta(JSON.stringify({
-        candidates: [{ finishReason: "MALFORMED_FUNCTION_CALL" }]
-    }), "gemini");
-    assert(r.error.length > 0, "detects Gemini failed generation reason");
+    var failedGeminiReasons = [
+        "MALFORMED_FUNCTION_CALL", "UNEXPECTED_TOOL_CALL", "TOO_MANY_TOOL_CALLS",
+        "MISSING_THOUGHT_SIGNATURE", "MALFORMED_RESPONSE"
+    ];
+    for (var gri = 0; gri < failedGeminiReasons.length; gri++) {
+        r = StreamParser.parseDelta(JSON.stringify({
+            candidates: [{ finishReason: failedGeminiReasons[gri] }]
+        }), "gemini");
+        assert(r.error.length > 0,
+            "detects Gemini failed generation reason " + failedGeminiReasons[gri]);
+    }
 
     r = StreamParser.parseDelta(JSON.stringify({ error: rawDiagnostic }), "ollama");
     assert(r.error.length > 0, "detects Ollama native streamed error");
@@ -1067,6 +1074,12 @@ section("Providers.buildCurlCommand");
     assertEqual(body.temperature, undefined, "thinking omits incompatible temperature");
 
     payload.model = "claude-opus-4-8";
+    payload.thinkingEnabled = false;
+    r = Providers.buildCurlCommand("anthropic", payload, "sk-ant-test");
+    body = parseCurlConfigBody(r.body);
+    assertEqual(body.temperature, undefined, "Opus 4.8 omits unsupported custom temperature when thinking is off");
+
+    payload.thinkingEnabled = true;
     r = Providers.buildCurlCommand("anthropic", payload, "sk-ant-test");
     body = parseCurlConfigBody(r.body);
     assertEqual(body.thinking.type, "adaptive", "Opus 4.8 uses its only supported thinking mode");
@@ -1079,7 +1092,36 @@ section("Providers.buildCurlCommand");
     body = parseCurlConfigBody(r.body);
     assertEqual(body.thinking, undefined, "always-on Fable thinking needs no request configuration");
     assertEqual(body.temperature, undefined, "always-on Fable thinking omits incompatible temperature");
+
     payload.thinkingEnabled = true;
+    r = Providers.buildCurlCommand("anthropic", payload, "sk-ant-test");
+    body = parseCurlConfigBody(r.body);
+    assertEqual(body.thinking.type, "adaptive", "Fable thinking toggle requests adaptive summaries");
+    assertEqual(body.thinking.display, "summarized", "Fable thinking toggle makes summaries visible");
+
+    payload.model = "claude-mythos-5";
+    payload.thinkingEnabled = false;
+    r = Providers.buildCurlCommand("anthropic", payload, "sk-ant-test");
+    body = parseCurlConfigBody(r.body);
+    assertEqual(body.thinking, undefined, "always-on Mythos thinking needs no request configuration");
+    payload.thinkingEnabled = true;
+    r = Providers.buildCurlCommand("anthropic", payload, "sk-ant-test");
+    body = parseCurlConfigBody(r.body);
+    assertDeepEqual(body.thinking, { type: "adaptive", display: "summarized" },
+        "Mythos thinking toggle requests adaptive summaries");
+
+    payload.model = "claude-sonnet-5";
+    payload.thinkingEnabled = false;
+    r = Providers.buildCurlCommand("anthropic", payload, "sk-ant-test");
+    body = parseCurlConfigBody(r.body);
+    assertEqual(body.temperature, undefined, "Sonnet 5 omits unsupported custom temperature when thinking is off");
+    assertDeepEqual(body.thinking, { type: "disabled" },
+        "Sonnet 5 explicitly disables default adaptive thinking when its toggle is off");
+    payload.thinkingEnabled = true;
+    r = Providers.buildCurlCommand("anthropic", payload, "sk-ant-test");
+    body = parseCurlConfigBody(r.body);
+    assertDeepEqual(body.thinking, { type: "adaptive", display: "summarized" },
+        "Sonnet 5 thinking toggle requests adaptive summaries");
 
     payload.model = "claude-opus-4-5";
     r = Providers.buildCurlCommand("anthropic", payload, "sk-ant-test");
@@ -2136,6 +2178,23 @@ section("ChatPersistence deterministic pruning and variants");
 })();
 
 (function() {
+    var messages = persistedTurns(1, "turn");
+    messages[1].variantIndex = 1;
+    messages[1].variantCount = 2;
+    var prepared = ChatPersistence.prepareState({
+        version: 1,
+        messages: messages,
+        variants: {}
+    }, 1);
+    assertEqual(prepared.payload.messages[1].variantIndex, 0,
+        "resets a stale assistant variant index when its side-channel is absent");
+    assertEqual(prepared.payload.messages[1].variantCount, 1,
+        "resets a stale assistant variant count when its side-channel is absent");
+    assertEqual(prepared.changed, true,
+        "marks repaired variant navigation for atomic persistence");
+})();
+
+(function() {
     var messages = persistedTurns(101, "turn");
     var variants = {
         "assistant-100": [],
@@ -2748,10 +2807,14 @@ section("Ollama probe response limits");
         "utf8"
     );
     var cappedProbeCalls = managerSource.match(
-        /command = _probeCommand\("\/api\/(?:tags|ps)"\)/g
+        /command = _probeCommand\("\/api\/(?:version|tags|ps)"\)/g
     ) || [];
     assertEqual(cappedProbeCalls.length, 3,
         "readiness, discovery, and GPU collectors all use the capped command");
+    assert(
+        managerSource.indexOf('ollamaPing.command = _probeCommand("/api/version")') >= 0,
+        "Ollama readiness uses the lightweight version endpoint"
+    );
     assert(
         managerSource.indexOf('"--max-filesize"') >= 0,
         "Ollama probes enforce an explicit curl response cap"

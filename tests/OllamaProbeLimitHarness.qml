@@ -159,6 +159,68 @@ ShellRoot {
             }
             phase = "final-recovery-gpu";
             manager.queryGpuStatus("normal-model");
+            return;
+        }
+
+        if (phase === "failed-readiness-start") {
+            if (!manager.readinessError) {
+                pollTimer.restart();
+                return;
+            }
+            if (!check(!manager._pingProcessActive
+                    && manager.readinessError
+                        === "Could not start Ollama readiness probe. Make sure curl is installed and available in PATH."
+                    && manager.ollamaRetries === 0
+                    && !manager.ollamaStartPending,
+                    "failed readiness launch remained active or lacked feedback")) return;
+            phase = "failed-discovery-start";
+            manager.discoverModels();
+            pollTimer.restart();
+            return;
+        }
+
+        if (phase === "failed-discovery-start") {
+            if (!manager.discoveryError) {
+                pollTimer.restart();
+                return;
+            }
+            if (!check(!manager._discoveryProcessActive
+                    && manager.discoveryError
+                        === "Could not start Ollama model discovery. Make sure curl is installed and available in PATH.",
+                    "failed discovery launch remained active or lacked feedback")) return;
+            phase = "failed-gpu-start";
+            manager.ollamaReady = true;
+            manager.queryGpuStatus("normal-model");
+            pollTimer.restart();
+            return;
+        }
+
+        if (phase === "failed-gpu-start") {
+            if (!manager.gpuError) {
+                pollTimer.restart();
+                return;
+            }
+            if (!check(!manager._gpuProcessActive
+                    && manager.gpuError
+                        === "Could not start Ollama GPU status probe. Make sure curl is installed and available in PATH.",
+                    "failed GPU launch remained active or lacked feedback")) return;
+            phase = "failed-start-recovery";
+            manager._probeExecutable = "curl";
+            manager.ensureReady();
+            pollTimer.restart();
+            return;
+        }
+
+        if (phase === "failed-start-recovery") {
+            if (!manager.ollamaReady || manager._discoveryProcessActive) {
+                pollTimer.restart();
+                return;
+            }
+            if (!check(!manager._pingProcessActive
+                    && manager.readinessError === "",
+                    "readiness probe did not recover after failed launch")) return;
+            manager.active = false;
+            finish(true, "version readiness, capped discovery and GPU probes, overflow recovery, and real failed-start cleanup passed");
         }
     }
 
@@ -201,7 +263,10 @@ ShellRoot {
             } else if (root.phase === "final-recovery-gpu") {
                 if (!root.check(label === "GPU" && manager.gpuError === "",
                         "GPU probe did not recover after overflow")) return;
-                root.finish(true, "normal, exact-bound, overflow, byte accounting, isolation, and recovery paths passed");
+                manager._probeExecutable = "/ephemera-test/missing-curl";
+                root.phase = "failed-readiness-start";
+                manager.ping();
+                pollTimer.restart();
             }
         }
     }

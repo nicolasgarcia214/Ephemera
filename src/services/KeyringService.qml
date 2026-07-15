@@ -91,6 +91,46 @@ Item {
             Qt.callLater(_startNextKeyringOperation);
     }
 
+    function _finishKeyringOperation(exitCode) {
+        var operation = _keyringOperation;
+        var output = _keyringOperationOutput;
+        _keyringOperation = null;
+        _keyringOperationOutput = "";
+
+        if (operation && operation.type === "lookup" && exitCode === 0) {
+            var key = Providers.sanitizeApiKey(output);
+            var cache = _cloneCache();
+            if (key.length > 0)
+                cache[operation.provider] = key;
+            else
+                delete cache[operation.provider];
+            _keyringCache = cache;
+        } else if (operation && operation.type === "store") {
+            if (exitCode === 0) {
+                var storeCache = _cloneCache();
+                storeCache[operation.provider] = operation.key;
+                _keyringCache = storeCache;
+            } else {
+                _appendKeyringOperation("lookup", operation.provider, "");
+            }
+        } else if (operation && operation.type === "clear") {
+            if (exitCode === 0) {
+                var clearCache = _cloneCache();
+                delete clearCache[operation.provider];
+                _keyringCache = clearCache;
+            } else {
+                _appendKeyringOperation("lookup", operation.provider, "");
+            }
+        }
+
+        Qt.callLater(_startNextKeyringOperation);
+    }
+
+    function _recoverFailedKeyringStart() {
+        if (!_keyringOperation || keyringCommand.running) return;
+        _finishKeyringOperation(-1);
+    }
+
     function _startNextKeyringOperation() {
         if (!_keyringAvailable || _keyringOperation
                 || keyringCommand.running || _keyringQueue.length === 0)
@@ -144,43 +184,10 @@ Item {
             if (running && operation && operation.type === "store") {
                 keyringCommand.write(operation.key);
                 keyringCommand.stdinEnabled = false;
+            } else if (!running && operation) {
+                root._recoverFailedKeyringStart();
             }
         }
-        onExited: exitCode => {
-            var operation = root._keyringOperation;
-            var output = root._keyringOperationOutput;
-            root._keyringOperation = null;
-            root._keyringOperationOutput = "";
-
-            if (operation && operation.type === "lookup" && exitCode === 0) {
-                var key = Providers.sanitizeApiKey(output);
-                var cache = root._cloneCache();
-                if (key.length > 0)
-                    cache[operation.provider] = key;
-                else
-                    delete cache[operation.provider];
-                root._keyringCache = cache;
-            } else if (operation && operation.type === "store") {
-                if (exitCode === 0) {
-                    var storeCache = root._cloneCache();
-                    storeCache[operation.provider] = operation.key;
-                    root._keyringCache = storeCache;
-                } else {
-                    root._appendKeyringOperation(
-                        "lookup", operation.provider, "");
-                }
-            } else if (operation && operation.type === "clear") {
-                if (exitCode === 0) {
-                    var clearCache = root._cloneCache();
-                    delete clearCache[operation.provider];
-                    root._keyringCache = clearCache;
-                } else {
-                    root._appendKeyringOperation(
-                        "lookup", operation.provider, "");
-                }
-            }
-
-            Qt.callLater(root._startNextKeyringOperation);
-        }
+        onExited: exitCode => root._finishKeyringOperation(exitCode)
     }
 }

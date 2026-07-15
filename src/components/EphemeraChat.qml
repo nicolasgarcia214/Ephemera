@@ -43,6 +43,11 @@ Item {
         function onMessageCopyFailed(messageId, message) {
             chatToast.show(message);
         }
+
+        function onOllamaProbeErrorChanged() {
+            if (aiService.isOllama && aiService.ollamaProbeError)
+                chatToast.show(aiService.ollamaProbeError);
+        }
     }
 
     onVisibleChanged: {

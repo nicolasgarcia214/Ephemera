@@ -23,6 +23,7 @@ Item {
     // suitable for enforcing a raw byte limit on multi-byte output.
     readonly property int _probeResponseLimitBytes: 64 * 1024
     readonly property int _curlFileSizeExceededExitCode: 63
+    property string _probeExecutable: "curl"
     property bool _shuttingDown: false
     property bool _terminationPending: false
     property bool _restartAfterExit: false
@@ -158,7 +159,7 @@ Item {
     // --- Internal ---
 
     function _probeCommand(path) {
-        return ["curl", "-s", "--connect-timeout", "2", "--max-filesize",
+        return [_probeExecutable, "-s", "--connect-timeout", "2", "--max-filesize",
             String(_probeResponseLimitBytes), ollamaUrl + path];
     }
 
@@ -170,7 +171,7 @@ Item {
     function _handlePingOutput(output) {
         try {
             var data = JSON.parse(output);
-            if (data && data.models !== undefined) {
+            if (data && typeof data.version === "string" && data.version.length > 0) {
                 ollamaReady = true;
                 readinessError = "";
                 if (!ollamaWeStarted && !ollamaStartPending)
@@ -182,6 +183,42 @@ Item {
             console.warn("Ephemera: Ollama ping parse error:", e);
         }
         _handlePingFailed();
+    }
+
+    function _finishPingStartFailure() {
+        if (!_pingProcessActive)
+            return;
+        _pingProcessActive = false;
+        var current = active && _pingGeneration === _lifecycleGeneration;
+        if (current)
+            readinessError = "Could not start Ollama readiness probe. Make sure curl is installed and available in PATH.";
+        if (_probePending && active && !_terminationPending)
+            Qt.callLater(ping);
+    }
+
+    function _finishDiscoveryStartFailure() {
+        if (!_discoveryProcessActive)
+            return;
+        _discoveryProcessActive = false;
+        if (active && _discoveryGeneration === _lifecycleGeneration)
+            discoveryError = "Could not start Ollama model discovery. Make sure curl is installed and available in PATH.";
+        if (_discoveryPending && active) {
+            _discoveryPending = false;
+            Qt.callLater(discoverModels);
+        }
+    }
+
+    function _finishGpuStartFailure() {
+        if (!_gpuProcessActive)
+            return;
+        _gpuProcessActive = false;
+        if (active && _gpuGeneration === _lifecycleGeneration)
+            gpuError = "Could not start Ollama GPU status probe. Make sure curl is installed and available in PATH.";
+        if (_pendingGpuModel && active) {
+            var pendingModel = _pendingGpuModel;
+            _pendingGpuModel = "";
+            Qt.callLater(function() { root.queryGpuStatus(pendingModel); });
+        }
     }
 
     function _handleDiscoveryOutput(output) {
@@ -317,7 +354,7 @@ Item {
         }
         _probePending = false;
         _pingGeneration = _lifecycleGeneration;
-        ollamaPing.command = _probeCommand("/api/tags");
+        ollamaPing.command = _probeCommand("/api/version");
         _pingProcessActive = true;
         ollamaPing.running = true;
     }
@@ -395,6 +432,10 @@ Item {
     Process {
         id: ollamaPing
         running: false
+        onRunningChanged: {
+            if (!running && root._pingProcessActive)
+                root._finishPingStartFailure();
+        }
         stdout: StdioCollector {
             id: ollamaPingOutput
         }
@@ -421,6 +462,10 @@ Item {
     Process {
         id: modelDiscovery
         running: false
+        onRunningChanged: {
+            if (!running && root._discoveryProcessActive)
+                root._finishDiscoveryStartFailure();
+        }
         stdout: StdioCollector {
             id: modelDiscoveryOutput
         }
@@ -444,6 +489,10 @@ Item {
     Process {
         id: gpuQuery
         running: false
+        onRunningChanged: {
+            if (!running && root._gpuProcessActive)
+                root._finishGpuStartFailure();
+        }
         stdout: StdioCollector {
             id: gpuQueryOutput
         }

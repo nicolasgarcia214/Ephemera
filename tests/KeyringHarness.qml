@@ -90,7 +90,30 @@ ShellRoot {
             if (keyring._keyringCache.openai !== "stored-openai-key"
                     || keyring._keyringCache.gemini !== "actual-gemini-key")
                 return;
-            finish(true, "lookup outcomes, external deletion, clear outcomes, and provider overlap kept the cache truthful");
+
+            keyring._keyringCache = ({
+                custom: "cached-custom-key",
+                openai: "stored-openai-key"
+            });
+            keyring._keyringOperation = ({
+                type: "clear", provider: "custom", key: ""
+            });
+            keyring._keyringQueue = [{
+                type: "lookup", provider: "gemini", key: ""
+            }];
+            phase = "failed-start";
+            keyring._recoverFailedKeyringStart();
+            return;
+        }
+
+        if (phase === "failed-start") {
+            if (keyring._keyringOperation || keyring._keyringQueue.length > 0)
+                return;
+            if (!check(keyring._keyringCache.custom === "cached-custom-key",
+                    "failed command start changed the last known key")) return;
+            if (!check(keyring._keyringCache.gemini === "actual-gemini-key",
+                    "failed command start did not continue the queue")) return;
+            finish(true, "lookup outcomes, clear outcomes, provider overlap, and failed starts kept the cache truthful");
         }
     }
 

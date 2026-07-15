@@ -220,8 +220,15 @@ function _sanitizeMessage(message, result) {
 }
 
 function _sanitizeVariants(message, rawVariants, result) {
-    if (message.role !== "assistant" || !_hasOwn(rawVariants, message.id))
+    if (message.role !== "assistant")
         return [];
+    if (!_hasOwn(rawVariants, message.id)) {
+        if (message.variantIndex !== 0 || message.variantCount !== 1)
+            result.changed = true;
+        message.variantIndex = 0;
+        message.variantCount = 1;
+        return [];
+    }
     var source = rawVariants[message.id];
     var start = Math.max(0, source.length - maxVariantsPerMessage);
     if (start > 0) result.changed = true;

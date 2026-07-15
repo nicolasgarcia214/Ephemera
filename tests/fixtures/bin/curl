@@ -23,6 +23,10 @@ for argument do
         --ephemera-stream-error-test)
             endpoint="stream-error"
             ;;
+        http://localhost:11434/api/version|http://127.0.0.*:11434/api/version)
+            endpoint="version"
+            endpoint_url=$argument
+            ;;
         http://localhost:11434/api/tags|http://127.0.0.*:11434/api/tags)
             endpoint="tags"
             endpoint_url=$argument
@@ -54,11 +58,17 @@ emit_probe_response() {
     mode=$1
     probe=$2
     case "$mode:$probe" in
+        normal:version)
+            printf '{"version":"0.11.0"}\n'
+            ;;
         normal:tags)
             printf '{"models":[{"name":"normal-model"}]}\n'
             ;;
         normal:ps)
             printf '{"models":[{"name":"normal-model","size":100,"size_vram":100}]}\n'
+            ;;
+        exact:version)
+            emit_exact_json '{"version":"0.11.0","padding":"'
             ;;
         exact:tags)
             emit_exact_json '{"models":[{"name":"exact-model"}],"padding":"'
@@ -70,20 +80,12 @@ emit_probe_response() {
             emit_exact_json '{"models":[],"padding":"'
             exit 63
             ;;
+        discovery:version|gpu:version)
+            printf '{"version":"0.11.0"}\n'
+            ;;
         discovery:tags)
-            count_file="$EPHEMERA_OLLAMA_PROBE_DIR/discovery-count"
-            count=0
-            if [ -f "$count_file" ]; then
-                count=$(cat "$count_file")
-            fi
-            count=$((count + 1))
-            printf '%s\n' "$count" > "$count_file"
-            if [ "$count" -eq 1 ]; then
-                printf '{"models":[{"name":"discovery-model"}]}\n'
-            else
-                emit_exact_json '{"models":[],"padding":"'
-                exit 63
-            fi
+            emit_exact_json '{"models":[],"padding":"'
+            exit 63
             ;;
         gpu:tags)
             printf '{"models":[{"name":"gpu-model"}]}\n'
@@ -121,13 +123,13 @@ fi
 
 if [ -n "${EPHEMERA_OLLAMA_LIFECYCLE_DIR:-}" ]; then
     case "$endpoint_url" in
-        http://localhost:11434/api/tags)
+        http://localhost:11434/api/version)
             printf 'PING_LOCAL\n' >> "$EPHEMERA_OLLAMA_LIFECYCLE_DIR/events"
             if [ ! -f "$EPHEMERA_OLLAMA_LIFECYCLE_DIR/owned-running" ]; then
                 exit 7
             fi
             ;;
-        http://127.0.0.1:11434/api/tags)
+        http://127.0.0.1:11434/api/version)
             printf 'PING_EXTERNAL\n' >> "$EPHEMERA_OLLAMA_LIFECYCLE_DIR/events"
             ;;
     esac
@@ -138,6 +140,9 @@ case "$endpoint" in
         printf '%s\n' 'data: {"error":{"message":"<b>api-key=must-not-leak</b>","type":"server_error","code":"fixture_failure"}}'
         sleep 10
         printf '%s\n' 'data: [DONE]'
+        ;;
+    version)
+        printf '{"version":"0.11.0"}\n'
         ;;
     tags|ps)
         printf '{"models":[]}\n'
