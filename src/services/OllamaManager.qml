@@ -22,6 +22,7 @@ Item {
     // the response. QML string lengths are decoded UTF-16 code units and are not
     // suitable for enforcing a raw byte limit on multi-byte output.
     readonly property int _probeResponseLimitBytes: 64 * 1024
+    readonly property int _probeTimeoutSeconds: 5
     readonly property int _curlFileSizeExceededExitCode: 63
     property string _probeExecutable: "curl"
     property bool _shuttingDown: false
@@ -37,6 +38,9 @@ Item {
     property int _pingGeneration: -1
     property int _discoveryGeneration: -1
     property int _gpuGeneration: -1
+    property string _pingOutput: ""
+    property string _discoveryOutput: ""
+    property string _gpuOutput: ""
     property int _ollamaPid: -1
     property int ollamaIdleMinutes: 5
     property string readinessError: ""
@@ -118,6 +122,8 @@ Item {
         }
         _discoveryPending = false;
         _discoveryGeneration = _lifecycleGeneration;
+        _discoveryOutput = "";
+        modelDiscoveryOutput.lastLen = 0;
         modelDiscovery.command = _probeCommand("/api/tags");
         _discoveryProcessActive = true;
         modelDiscovery.running = true;
@@ -135,6 +141,8 @@ Item {
         _pendingGpuModel = "";
         _gpuQueryModel = modelName;
         _gpuGeneration = _lifecycleGeneration;
+        _gpuOutput = "";
+        gpuQueryOutput.lastLen = 0;
         gpuQuery.command = _probeCommand("/api/ps");
         _gpuProcessActive = true;
         gpuQuery.running = true;
@@ -159,7 +167,9 @@ Item {
     // --- Internal ---
 
     function _probeCommand(path) {
-        return [_probeExecutable, "-s", "--connect-timeout", "2", "--max-filesize",
+        return [_probeExecutable, "-q", "-sS", "--proto", "=http,https",
+            "--connect-timeout", "2", "--max-time",
+            String(_probeTimeoutSeconds), "--max-filesize",
             String(_probeResponseLimitBytes), ollamaUrl + path];
     }
 
@@ -354,6 +364,8 @@ Item {
         }
         _probePending = false;
         _pingGeneration = _lifecycleGeneration;
+        _pingOutput = "";
+        ollamaPingOutput.lastLen = 0;
         ollamaPing.command = _probeCommand("/api/version");
         _pingProcessActive = true;
         ollamaPing.running = true;
@@ -438,11 +450,19 @@ Item {
         }
         stdout: StdioCollector {
             id: ollamaPingOutput
+            property int lastLen: 0
+            onTextChanged: {
+                if (!root._pingProcessActive) return;
+                if (text.length < lastLen) lastLen = 0;
+                root._pingOutput += text.substring(lastLen);
+                lastLen = text.length;
+            }
         }
         onExited: exitCode => {
             root._pingProcessActive = false;
-            root._lastPingResponseBytes = ollamaPingOutput.data.byteLength;
-            root._lastPingResponseCharacters = ollamaPingOutput.text.length;
+            root._lastPingResponseBytes = root._pingOutput.length > 0
+                ? ollamaPingOutput.data.byteLength : 0;
+            root._lastPingResponseCharacters = root._pingOutput.length;
             var current = root.active
                 && root._pingGeneration === root._lifecycleGeneration;
             if (current && exitCode === root._curlFileSizeExceededExitCode) {
@@ -450,7 +470,7 @@ Item {
                 root.ollamaExternallyManaged = false;
                 root.readinessError = root._overflowError("readiness");
             } else if (current && exitCode === 0) {
-                root._handlePingOutput(ollamaPingOutput.text);
+                root._handlePingOutput(root._pingOutput);
             } else if (current) {
                 root._handlePingFailed();
             }
@@ -468,17 +488,25 @@ Item {
         }
         stdout: StdioCollector {
             id: modelDiscoveryOutput
+            property int lastLen: 0
+            onTextChanged: {
+                if (!root._discoveryProcessActive) return;
+                if (text.length < lastLen) lastLen = 0;
+                root._discoveryOutput += text.substring(lastLen);
+                lastLen = text.length;
+            }
         }
         onExited: exitCode => {
             root._discoveryProcessActive = false;
-            root._lastDiscoveryResponseBytes = modelDiscoveryOutput.data.byteLength;
-            root._lastDiscoveryResponseCharacters = modelDiscoveryOutput.text.length;
+            root._lastDiscoveryResponseBytes = root._discoveryOutput.length > 0
+                ? modelDiscoveryOutput.data.byteLength : 0;
+            root._lastDiscoveryResponseCharacters = root._discoveryOutput.length;
             var current = root.active && root._discoveryGeneration
                 === root._lifecycleGeneration;
             if (current && exitCode === root._curlFileSizeExceededExitCode)
                 root.discoveryError = root._overflowError("model discovery");
             else if (current && exitCode === 0)
-                root._handleDiscoveryOutput(modelDiscoveryOutput.text);
+                root._handleDiscoveryOutput(root._discoveryOutput);
             if (root._discoveryPending && root.active) {
                 root._discoveryPending = false;
                 Qt.callLater(root.discoverModels);
@@ -495,17 +523,25 @@ Item {
         }
         stdout: StdioCollector {
             id: gpuQueryOutput
+            property int lastLen: 0
+            onTextChanged: {
+                if (!root._gpuProcessActive) return;
+                if (text.length < lastLen) lastLen = 0;
+                root._gpuOutput += text.substring(lastLen);
+                lastLen = text.length;
+            }
         }
         onExited: exitCode => {
             root._gpuProcessActive = false;
-            root._lastGpuResponseBytes = gpuQueryOutput.data.byteLength;
-            root._lastGpuResponseCharacters = gpuQueryOutput.text.length;
+            root._lastGpuResponseBytes = root._gpuOutput.length > 0
+                ? gpuQueryOutput.data.byteLength : 0;
+            root._lastGpuResponseCharacters = root._gpuOutput.length;
             var current = root.active
                 && root._gpuGeneration === root._lifecycleGeneration;
             if (current && exitCode === root._curlFileSizeExceededExitCode)
                 root.gpuError = root._overflowError("GPU status");
             else if (current && exitCode === 0)
-                root._handleGpuOutput(gpuQueryOutput.text);
+                root._handleGpuOutput(root._gpuOutput);
             if (root._pendingGpuModel && root.active) {
                 var pendingModel = root._pendingGpuModel;
                 root._pendingGpuModel = "";

@@ -1,11 +1,13 @@
 # Contributing to Ephemera
 
-This guide covers everything you need to know to work on Ephemera — a Quickshell daemon plugin that provides an ephemeral AI chat slideout for Wayland desktops.
+This guide covers everything you need to know to work on Ephemera — a DankMaterialShell daemon plugin, built with Quickshell, that provides an ephemeral AI chat slideout for Wayland desktops.
 
 ## Prerequisites
 
 - A running [DankMaterialShell (DMS)](https://danklinux.com) installation (provides Quickshell + `qs.Common`, `qs.Widgets`, `qs.Services`)
-- `curl`, `wl-copy` (from wl-clipboard), and optionally [Ollama](https://ollama.com)
+- `curl`, `wl-copy` (from wl-clipboard), GNU `install`, and optionally [Ollama](https://ollama.com) and `secret-tool`
+- Node.js for the JS suite; the MCP lifecycle suite's production gate is Node.js >=24.17.0 and <25 with bundled Undici >=7.28.0 and <8
+- Quickshell for QML lifecycle tests; an active Wayland compositor is required for the live panel geometry test
 - Basic familiarity with QML and JavaScript
 
 ## Project structure
@@ -19,32 +21,48 @@ ephemera/
 │   │   ├── EphemeraService.qml          # Coordinator — messages, variants, orchestrates child services
 │   │   ├── StreamingService.qml         # Curl process, SSE parsing, stream state, error backoff
 │   │   ├── KeyringService.qml           # System keyring (D-Bus Secret Service) and env var key resolution
-│   │   └── OllamaManager.qml           # Ollama lifecycle — auto-start, ping, shutdown, model discovery
+│   │   ├── OllamaManager.qml            # Ollama lifecycle — auto-start, probes, shutdown, model discovery
+│   │   └── MCPService.qml               # Version-gated MCP bridge, JSON-RPC, discovery, tool execution
 │   ├── components/
 │   │   ├── EphemeraPanel.qml            # Wayland layer-shell PanelWindow — slide/expand animations
 │   │   ├── EphemeraChat.qml             # Main UI — header, message area, composer, overlays
-│   │   ├── ChatComposer.qml            # Auto-growing text input with send/stop/clear
-│   │   ├── ChatHeader.qml              # Header bar — model selector, actions, overflow menu
-│   │   ├── ChatToast.qml               # Ephemeral notification overlay
-│   │   ├── ClearChatDialog.qml         # Clear chat confirmation dialog
+│   │   ├── ChatComposer.qml             # Auto-growing text input with guarded send/stop/clear
+│   │   ├── ChatHeader.qml               # Model selector, exports, placement, expansion, overflow menu
+│   │   ├── ChatToast.qml                # Ephemeral notification overlay
+│   │   ├── ClearChatDialog.qml          # Clear chat confirmation dialog
 │   │   ├── EphemeraSettings.qml         # Settings shell — delegates to card components below
 │   │   ├── ProviderSettingsCard.qml     # Provider/model selection with URL validation
 │   │   ├── ModelParametersCard.qml      # Temperature, max tokens, system prompt, timeout sliders
 │   │   ├── ApiKeysCard.qml              # API key status from provider registry
 │   │   ├── ChatHistoryCard.qml          # Persistence toggle
+│   │   ├── McpSettingsCard.qml          # MCP endpoint, transport consent, and tool contracts
+│   │   ├── McpToolContractCard.qml      # Exact-contract review UI
+│   │   ├── McpToolApprovalPrompt.qml    # Per-invocation confirmation UI
+│   │   ├── EphemeraActionButton.qml     # Tooltip-safe header action wrapper
 │   │   ├── AccordionSection.qml         # Reusable animated show/hide container
 │   │   ├── SettingsCard.qml             # Reusable themed card with icon and title
 │   │   ├── MessageList.qml              # ListView wrapper with auto-scroll and entry animations
 │   │   └── MessageBubble.qml            # Message rendering (markdown, variants, copy, regenerate, timer)
-│   └── lib/
-│       ├── Providers.js                 # Provider registry + curl command builders + URL validation
-│       ├── Markdown.js                  # Markdown-to-HTML converter with security hardening
-│       ├── StreamParser.js              # SSE stream parsing — parseDelta() per provider format
-│       ├── ChatExport.js                # Chat export to markdown format
-│       ├── VariantStore.js              # Pure-function variant store operations (save, get, evict)
-│       └── ErrorHints.js                # Contextual error hints for HTTP/curl error codes
+│   ├── lib/
+│   │   ├── Providers.js                 # Provider registry + curl command builders + URL validation
+│   │   ├── Markdown.js                  # Markdown-to-HTML converter with security hardening
+│   │   ├── StreamParser.js              # SSE stream parsing — parseDelta() per provider format
+│   │   ├── ChatExport.js                # Chat export to markdown format
+│   │   ├── ChatPersistence.js           # Bounded, validated, atomic chat snapshots
+│   │   ├── Mcp.js                       # MCP transport/tool normalization helpers
+│   │   ├── McpSchema.js                 # Bounded JSON Schema validation
+│   │   ├── Submission.js                # Shared submission-readiness contract
+│   │   ├── VariantStore.js              # Pure-function variant store operations (save, get, evict)
+│   │   ├── ErrorHints.js                # Contextual error hints for HTTP/curl error codes
+│   │   └── Backoff.js                   # Exponential error cooldown with jitter
+│   └── runtime/
+│       └── McpFetchGuard.cjs             # Revalidates and constrains the reviewed bridge at runtime
 ├── tests/
-│   └── run_tests.js                     # Unit tests for all JS modules (319 tests)
+│   ├── run_tests.js                     # JS, source-contract, and geometry unit tests
+│   ├── run_qml_tests.sh                 # MCP guard plus QML lifecycle/compile harnesses
+│   ├── run_panel_qml_test.sh            # Live Wayland panel geometry harness
+│   ├── *Harness.qml                     # Focused lifecycle and integration harnesses
+│   └── fixtures/                        # Hermetic process, package, and parent-module fixtures
 ├── CLAUDE.md -> AGENTS.md               # AI assistant context file
 ├── CONTRIBUTING.md                      # Developer guide
 └── README.md                            # User-facing documentation
@@ -59,24 +77,30 @@ EphemeraDaemon (entry point)
 │  ├─ Message ListModel (in-memory by default, optionally persisted)
 │  ├─ messageIndexMap (O(1) message lookups by ID)
 │  ├─ VariantStore.js (pure-function variant ops: save, get, evict)
-│  ├─ Provider settings (persisted via PluginService)
-│  ├─ Chat persistence (opt-in via persistChat toggle, debounced saves)
-│  └─ Providers.js (provider registry, curl command builders, URL validation)
+│  ├─ Provider/request settings (snapshotted at stream start, persisted via PluginService)
+│  ├─ ChatPersistence.js (bounded state, trim disclosure, 150ms debounce, atomic savePluginState)
+│  └─ Narrow facades for child state and user-triggered operations
 │
 ├─ StreamingService (child service, src/services/)
 │  ├─ Curl process (stdin config via -K -, SSE streaming, 5MB buffer cap)
 │  ├─ Stream buffers (_streamContent, _streamThinking, _streamVariantIndex)
-│  ├─ Backoff.js (exponential backoff with jitter for error cooldown)
-│  └─ ErrorHints.js (contextual HTTP/curl error messages)
+│  ├─ Provider/generation identity checks and replacement-launch queue
+│  ├─ MCP tool-round state and per-call confirmation
+│  └─ Managed clipboard and mode-0600 file export processes
 │
 ├─ KeyringService (child service, src/services/)
-│  └─ API key resolution (system keyring via secret-tool → env var fallback)
+│  └─ Serialized keyring operations and key resolution (secret-tool → env var fallback)
 │
 ├─ OllamaManager (child service, src/services/)
-│  └─ Ollama lifecycle (ping → auto-start → discover models, 15 retries)
+│  └─ Bounded readiness/model/GPU probes and owned-process lifecycle
+│
+├─ MCPService (child service, src/services/)
+│  ├─ Exact Node/mcp-remote/Undici/open version and layout gate
+│  ├─ Guarded bridge process, reconnect ordering, and JSON-RPC lifecycle
+│  └─ Bounded tool discovery, schemas, calls, and results
 │
 └─ Variants (one per screen)
-   └─ EphemeraPanel (PanelWindow with slide/expand animations)
+   └─ EphemeraPanel (bounded PanelWindow with side/slide/expand animations)
       └─ EphemeraChat
          ├─ MessageList → MessageBubble (uses Markdown.js, streaming timer)
          ├─ Composer (auto-growing text input)
@@ -84,12 +108,15 @@ EphemeraDaemon (entry point)
             ├─ ProviderSettingsCard
             ├─ ModelParametersCard
             ├─ ApiKeysCard
-            └─ ChatHistoryCard
+            ├─ ChatHistoryCard
+            └─ McpSettingsCard → McpToolContractCard
 ```
 
-**Data flow:** User types → `EphemeraChat.sendCurrentMessage()` → `EphemeraService.sendMessage()` → builds payload with sliding context window → `Providers.buildCurlCommand()` → spawns curl via `Process` with body on stdin → `StdioCollector` captures SSE chunks → `handleStreamChunk()` parses `data:` lines → `StreamParser.parseDelta()` extracts text per provider → `updateStreamContent()` appends to `_streamContent` buffer and conditionally updates ListModel (only if the user is viewing the streaming variant) → UI updates live.
+**Data flow:** User types → `EphemeraChat.sendCurrentMessage()` → `EphemeraService.sendMessage()` checks the shared submission contract → the coordinator appends indexed user/assistant entries → snapshots provider, credential, model, parameters, tools, and context → `Providers.buildCurlCommand()` produces a secret-free argv plus stdin curl config → `StreamingService.launchCurl()` binds the launch to provider/generation identity → `handleStreamChunk()` and `StreamParser.parseDelta()` update child-owned buffers → signals call the coordinator's `_applyStreamContent()`/`_applyStreamThinking()` methods → the coordinator conditionally updates the visible ListModel variant.
 
-**Regeneration flow:** User clicks Regenerate → `regenerate()` saves current `{content, thinking, modelName}` into `variantStore[msgId]` → increments `variantCount`, sets new variant's `modelName` to the current model, resets message for streaming → `_launchCurl()` starts new request (no new messages appended) → stream writes to `_streamContent`/`_streamThinking` buffers → on finalize, saved to `variantStore` at `_streamVariantIndex` → user navigates variants via `switchVariant()` which loads content and `modelName` from `variantStore`, so each variant's bubble chip shows the model that generated it.
+**Regeneration flow:** User clicks Regenerate → `regenerate()` saves current `{content, thinking, modelName}` into `variantStore[msgId]` → increments `variantCount`, snapshots the new request identity, and starts the replacement stream without appending messages → `StreamingService` writes its buffers → the coordinator saves the finalized or cancelled variant at `_streamVariantIndex` → `switchVariant()` loads content, thinking, and model identity from the side-channel store. Variants are capped at 10 with FIFO eviction.
+
+**MCP flow:** The Ollama-only MCP service validates the configured transport and reviewed local runtime → starts the guarded bridge → negotiates a supported protocol and bounded tool list → the user approves exact tool contracts and separately enables model tool requests → Ollama receives only approved schemas → each proposed call is revalidated against the approved contract and pauses for explicit confirmation → bounded results are returned through native Ollama tool-round messages. Tool audit text is display-only and is never sent back as model-authored thinking.
 
 ## Setup for development
 
@@ -110,15 +137,31 @@ EphemeraDaemon (entry point)
 
 ## Testing changes
 
-### Unit tests
+### Unit and source-contract tests
 
-Pure JS modules in `src/lib/` have a Node.js test suite:
+Run the Node.js suite after changing JavaScript, provider contracts, persistence, service wiring, export behavior, or panel source contracts:
 
 ```sh
 node tests/run_tests.js
 ```
 
-This tests Providers.js, StreamParser.js, Markdown.js, ChatExport.js, VariantStore.js, ErrorHints.js, and Backoff.js. Run after any change to JS files.
+This covers every library in `src/lib/`, security and request contracts, persistence bounds, selected QML source invariants, and pure panel-geometry behavior. Do not hardcode the assertion count in documentation; it changes as coverage grows.
+
+### QML lifecycle and shipping compile tests
+
+```sh
+tests/run_qml_tests.sh
+```
+
+This exercises the MCP Fetch guard, service/coordinator lifecycles, provider isolation, submission gating, persistence, keyring serialization, exports, Ollama ownership/probe limits, and compilation of the shipping daemon/component graph. It requires Quickshell. The script uses the active Wayland compositor when available or a headless Weston instance when installed; CI supplies pinned Quickshell and Weston versions.
+
+For the live layer-shell geometry harness, run from an active Wayland session:
+
+```sh
+tests/run_panel_qml_test.sh
+```
+
+It exits with status 77 when no compositor socket is available.
 
 ### Reload cycle
 
@@ -163,7 +206,7 @@ Common error patterns:
 
 ### Testing streaming manually
 
-You can test the exact curl command the plugin would issue:
+The following is a direct Ollama endpoint smoke test. It is intentionally not the exact Ephemera process invocation: the plugin uses `curl -q -K -`, keeps the URL, headers, and JSON body in a curl config on stdin, disables redirects, and requests usage accounting.
 
 ```sh
 # Ollama (LiquidAI example)
@@ -179,8 +222,8 @@ You should see `data:` lines streaming in, ending with `data: [DONE]` and `EPH_S
 ### Testing Ollama lifecycle
 
 ```sh
-# Check if Ollama is running
-curl -s http://localhost:11434/api/tags
+# Check if Ollama is ready
+curl -s http://localhost:11434/api/version
 
 # List available models
 curl -s http://localhost:11434/api/tags | python3 -c "import sys,json; [print(m['name']) for m in json.load(sys.stdin)['models']]"
@@ -213,16 +256,22 @@ ollama serve &
 - Thinking section has clear visual separation from content (spacing + divider)
 - Export button in header copies full conversation as markdown; save button writes to `~/ephemera-chat-<timestamp>.md`
 - Missing API key banner shows which env var to set (visible in chat area, not just header pill)
-- "Connect to Ollama" button in settings triggers reconnect
+- **Start Ollama** retries startup and **Refresh Models** repeats discovery
 - Save Chat History toggle persists messages across sessions; clearing chat also clears persisted data
-- All dismiss actions (close button, Escape, Mod+A) only hide the panel — Ollama keeps running; idle auto-stop handles cleanup if the plugin started it
+- Persisted pruning adds text markers where applicable, preserves the `trimmed` flag, and shows the trim notice without altering the live conversation
+- Close and Escape only hide the panel — Ollama keeps running; idle auto-stop handles cleanup if the plugin started it
 - Escape key hides panel (same as close button — no shutdown dialog)
-- Ctrl+L clears chat (blocked during streaming)
+- Ctrl+L clears chat and composer (blocked during streaming)
 - Ctrl+N clears chat and composer (blocked during streaming)
 - Ctrl+Shift+S toggles settings overlay
 - Up arrow in empty composer recalls last sent message; with text in composer, moves cursor normally
 - Expand/collapse button works on the slideout
-- Custom base URLs are validated (http/https only, valid hostname, max 2048 chars); inline error shown on invalid input
+- Side toggle moves the panel between edges without ever anchoring both sides
+- Narrow screens cap collapsed and expanded panel geometry to the active screen
+- Custom provider URLs require HTTPS remotely; HTTP is limited to `localhost` and `127.0.0.0/8`; inline errors cover invalid hosts, ports, credentials, unsafe characters, and overlong URLs
+- Changing provider clears live messages, variants, and persisted state; changing only the model preserves them
+- Max Tokens supports 256–131,072 and No limit, subject to provider/model caps
+- MCP enablement, transport consent, exact-contract approval, per-call confirmation, reconnect, rejection, timeout, and tool-result failure paths work as documented
 - HTTP errors show contextual hints (401 → check API key, 429 → rate limited, etc.)
 
 ## Quickshell QML constraints
@@ -350,23 +399,24 @@ These are non-negotiable design decisions:
 - **Link scheme whitelist.** Only `http://` and `https://` links are opened. No `file://`, `javascript:`, or other schemes.
 - **HTML escaping in Markdown.js.** All user content is escaped before rendering as rich text. Code blocks, table cells, language labels, link text, and link URLs are all escaped independently.
 - **Gemini API key as header** (`x-goog-api-key`), not as a URL query parameter.
-- **Custom URL validation.** Custom base URLs must start with `http://` or `https://`, have a valid hostname, and be under 2048 characters. Validation errors shown inline.
-- **Stdout buffer cap.** The `StdioCollector` is capped at 5MB (checked before processing the new chunk). A rogue endpoint cannot exhaust memory.
+- **Custom URL validation.** Custom base URLs require HTTPS for remote hosts. Plaintext HTTP is limited to exact `localhost` or unambiguous dotted-decimal `127.0.0.0/8` addresses. Credentials, invalid ports/hosts, unsafe characters, and values over 2048 characters are rejected.
+- **MCP boundary.** Only the reviewed runtime versions/layout are launched. Endpoint consent is identity-bound, redirects fail closed, tool discovery is bounded, exact input/output schemas are enforced, and every invocation requires confirmation.
+- **Stdout buffer cap.** The main response process is stopped when its QML text buffer exceeds 5,242,880 string code units. The smaller Ollama readiness, discovery, and GPU probes use curl-enforced 64 KiB raw-byte caps. Neither collector can grow without bound.
 
 ## Adding a new provider
 
-1. **`src/lib/Providers.js`** — Add a `registry` entry with `name`, `envVar`, `defaultUrl`, `needsKey`, `hasNativeThinking`, temperature range (`tempMin`/`tempMax`/`tempDefault`), `modelPlaceholder`, and optionally `models` (hardcoded list). Add a corresponding `buildRequest` case in `buildRequest()`. The request builder returns `{ url, headers, body }`. Use the shared `extractSystemPrompt(payload.messages)` helper to separate system messages if the provider needs them in a different field.
+1. **`src/lib/Providers.js`** — Add a `registry` entry with `name`, `envVar`, `defaultUrl`, `needsKey`, `hasNativeThinking`, temperature range (`tempMin`/`tempMax`/`tempDefault`), `modelPlaceholder`, and optionally `models` (curated suggestions). Add a corresponding `buildRequest` case. The builder returns `{ url, headers, body }` or a safe `{ error }`; define an explicit transport policy and keep secrets out of argv. Use `extractSystemPrompt()` when the provider represents system prompts separately.
 
 2. **`src/lib/StreamParser.js`** — If the streaming format differs from OpenAI's SSE, add a case in `parseDelta()`.
 
 3. **`src/services/KeyringService.qml`** — The provider's `envVar` from the registry is used automatically for env var fallback. No changes needed unless the provider has special key resolution logic.
 
-4. **UI auto-updates** — Settings cards use `Providers.getProviderNames()` and the registry, so the new provider appears automatically in dropdowns, API key status, and model placeholders.
+4. **UI and tests** — Settings cards use `Providers.getProviderNames()` and the registry, so basic provider/model/key UI updates automatically. Add request, parsing, error-envelope, temperature/token-contract, URL-policy, and lifecycle tests appropriate to the provider before exposing it.
 
 ## Code style
 
 - No automated linter or formatter. Follow existing patterns.
-- Use `Theme.*` for all colors, spacing, and sizing — never hardcode values.
+- Use `Theme.*` for colors, typography, and layout spacing. Fixed control dimensions are acceptable only when intentional and consistent with existing components.
 - Prefer `Behavior on property` for reactive animations.
 - Keep JS logic in `.pragma library` files under `src/lib/`; keep QML files focused on UI and state.
 - Security-sensitive code should be commented with the rationale.

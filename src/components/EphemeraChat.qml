@@ -13,10 +13,23 @@ Item {
     required property var aiService
     property bool showSettings: false
     property bool _settingsClosing: false
+    property bool _trimNoticeShown: false
     property bool slideoutExpandable: false
     property bool slideoutExpanded: false
     signal hideRequested
     signal expandToggled
+
+    function _showTrimNotice() {
+        if (!aiService || !aiService.chatHistoryTrimmed) {
+            _trimNoticeShown = false;
+            return;
+        }
+        if (_trimNoticeShown) return;
+        _trimNoticeShown = true;
+        chatToast.show("Saved chat was trimmed to Ephemera's storage limits");
+    }
+
+    Component.onCompleted: Qt.callLater(root._showTrimNotice)
 
     function focusInput() {
         composerArea.forceActiveFocus();
@@ -47,6 +60,10 @@ Item {
         function onOllamaProbeErrorChanged() {
             if (aiService.isOllama && aiService.ollamaProbeError)
                 chatToast.show(aiService.ollamaProbeError);
+        }
+
+        function onChatHistoryTrimmedChanged() {
+            root._showTrimNotice();
         }
     }
 

@@ -162,6 +162,24 @@ ShellRoot {
             return;
         }
 
+        if (phase === "empty-discovery") {
+            if (manager._discoveryProcessActive || !manager.discoveryError) {
+                pollTimer.restart();
+                return;
+            }
+            if (!check(manager.ollamaReady
+                    && manager.discoveryError
+                        === "Failed to parse model list from Ollama."
+                    && manager._lastDiscoveryResponseBytes === 0
+                    && manager._lastDiscoveryResponseCharacters === 0,
+                    "zero-output discovery replayed retained collector data")) return;
+            manager._probeExecutable = "/ephemera-test/missing-curl";
+            phase = "failed-readiness-start";
+            manager.ping();
+            pollTimer.restart();
+            return;
+        }
+
         if (phase === "failed-readiness-start") {
             if (!manager.readinessError) {
                 pollTimer.restart();
@@ -220,7 +238,7 @@ ShellRoot {
                     && manager.readinessError === "",
                     "readiness probe did not recover after failed launch")) return;
             manager.active = false;
-            finish(true, "version readiness, capped discovery and GPU probes, overflow recovery, and real failed-start cleanup passed");
+            finish(true, "version readiness, capped probes, overflow recovery, zero-output isolation, and failed-start cleanup passed");
         }
     }
 
@@ -263,10 +281,8 @@ ShellRoot {
             } else if (root.phase === "final-recovery-gpu") {
                 if (!root.check(label === "GPU" && manager.gpuError === "",
                         "GPU probe did not recover after overflow")) return;
-                manager._probeExecutable = "/ephemera-test/missing-curl";
-                root.phase = "failed-readiness-start";
-                manager.ping();
-                pollTimer.restart();
+                root.setPhase("empty-discovery",
+                    "http://127.0.0.15:11434");
             }
         }
     }

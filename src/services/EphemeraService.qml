@@ -47,6 +47,8 @@ Item {
 
     // --- Persistence (opt-in) ---
     property bool persistChat: false
+    property bool _chatHistoryTrimmed: false
+    readonly property bool chatHistoryTrimmed: _chatHistoryTrimmed
     readonly property string _chatStateKey: "chatState"
     readonly property int _chatStateVersion: 1
     // Snapshots retain at most 200 completed messages (normally 100 paired
@@ -544,6 +546,7 @@ Item {
         _chatSaveDebounce.stop();
         PluginService.clearPluginState(pluginId);
         _clearLegacyChatData();
+        _chatHistoryTrimmed = false;
     }
 
     function clearChat() {
@@ -580,13 +583,14 @@ Item {
             msgs.shift();
 
         var snapshot = ChatPersistence.createSnapshot(
-            msgs, variantStore, _chatStateVersion);
+            msgs, variantStore, _chatStateVersion, _chatHistoryTrimmed);
         if (!snapshot) {
             console.warn("Ephemera: refusing to persist invalid live chat state");
             return;
         }
         PluginService.savePluginState(
             pluginId, _chatStateKey, snapshot.payload);
+        _chatHistoryTrimmed = snapshot.payload.trimmed === true;
     }
 
     Timer {
@@ -618,6 +622,7 @@ Item {
         messageIndexMap = indexMap;
         variantStore = payload.variants;
         lastUserText = lastUser;
+        _chatHistoryTrimmed = payload.trimmed === true;
     }
 
     function _discardInvalidStoredChat(message) {

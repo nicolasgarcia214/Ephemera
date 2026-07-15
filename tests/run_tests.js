@@ -1049,6 +1049,21 @@ section("Providers.buildCurlCommand");
     assertEqual(body.max_completion_tokens, 4096, "OpenAI o4-mini uses max_completion_tokens");
     assertEqual(body.temperature, undefined, "OpenAI o4-mini omits unsupported temperature");
 
+    payload.model = "gpt-5";
+    r = Providers.buildCurlCommand("openai", payload, "sk-test123");
+    body = parseCurlConfigBody(r.body);
+    assertEqual(body.temperature, undefined,
+        "older OpenAI GPT-5 models omit unsupported temperature");
+    assertEqual(Providers.clampTemperature("openai", "gpt-5-mini", 0.7),
+        undefined, "GPT-5 mini omits unsupported temperature");
+    assertEqual(Providers.clampTemperature("openai", "gpt-5-nano", 0.7),
+        undefined, "GPT-5 nano omits unsupported temperature");
+    assertEqual(Providers.clampTemperature(
+        "openai", "gpt-5-2025-08-07", 0.7), undefined,
+        "dated GPT-5 snapshots omit unsupported temperature");
+    assertEqual(Providers.clampTemperature("openai", "gpt-5.4", 0.7), 0.7,
+        "GPT-5.4 retains temperature at its default reasoning effort");
+
     // Anthropic
     payload.provider = "anthropic";
     payload.baseUrl = "https://api.anthropic.com";
@@ -2134,10 +2149,18 @@ section("ChatPersistence exact bounds");
     }, 1);
     assertEqual(ChatPersistence.utf8ByteLength(prepared.payload.messages[1].content),
         ChatPersistence.maxContentBytes, "truncates content at the exact UTF-8 bound");
-    assertEqual(ChatPersistence.utf8ByteLength(prepared.payload.messages[1].thinking),
-        ChatPersistence.maxThinkingBytes, "does not split a UTF-8 code point");
+    assert(ChatPersistence.utf8ByteLength(prepared.payload.messages[1].thinking)
+            <= ChatPersistence.maxThinkingBytes,
+        "does not split a UTF-8 code point");
+    assert(prepared.payload.messages[1].content.endsWith(
+            ChatPersistence.truncationMarker)
+            && prepared.payload.messages[1].thinking.endsWith(
+                ChatPersistence.truncationMarker),
+        "discloses user-visible field truncation inside the saved text");
     assertEqual(ChatPersistence.utf8ByteLength(prepared.payload.messages[1].modelName),
         ChatPersistence.maxModelBytes, "truncates model names at their byte bound");
+    assertEqual(prepared.payload.trimmed, true,
+        "records that the saved chat was trimmed");
 })();
 
 section("ChatPersistence deterministic pruning and variants");
@@ -2224,6 +2247,8 @@ section("ChatPersistence deterministic pruning and variants");
         "prunes an oversized history to the exact message cap");
     assertEqual(first.payload.messages[0].id, "user-1",
         "prunes complete oldest turns first");
+    assertEqual(first.payload.trimmed, true,
+        "records message-limit pruning for reload disclosure");
     assertEqual(first.payload.messages[first.payload.messages.length - 1].id,
         "assistant-100", "retains the newest useful assistant context");
     assertEqual(first.payload.variants["assistant-100"].length,
@@ -2818,6 +2843,16 @@ section("Ollama probe response limits");
     assert(
         managerSource.indexOf('"--max-filesize"') >= 0,
         "Ollama probes enforce an explicit curl response cap"
+    );
+    assert(
+        managerSource.indexOf('"--max-time"') >= 0,
+        "Ollama probes enforce a total timeout"
+    );
+    assert(
+        managerSource.indexOf("_handlePingOutput(root._pingOutput)") >= 0
+            && managerSource.indexOf(
+                "_handleDiscoveryOutput(root._discoveryOutput)") >= 0,
+        "Ollama probes parse launch-local output instead of retained collector text"
     );
     assert(
         managerSource.indexOf(".data.byteLength") >= 0,

@@ -8,9 +8,7 @@
 
 AI chat for your desktop — ask quick questions, keep nothing (or everything).
 
-![Ephemera screenshot](screenshots/screenshot.jpg)
-
-Ephemera is a [Quickshell](https://github.com/quickshell-mirror/quickshell) plugin that adds an AI chat slideout panel to your Wayland desktop shell. By default, all conversations live in memory and disappear when you close the panel. Enable **Save Chat History** in settings to persist conversations across sessions.
+Ephemera is a [DankMaterialShell (DMS)](https://danklinux.com) daemon plugin, built with [Quickshell](https://github.com/quickshell-mirror/quickshell), that adds an AI chat slideout panel to your Wayland desktop shell. By default, conversations live only in memory: hiding and reopening the panel keeps the current conversation, while restarting DMS or disabling the plugin discards it. Enable **Save Chat History** in settings to retain a bounded recent history across sessions.
 
 ## Features
 
@@ -24,22 +22,32 @@ Ephemera is a [Quickshell](https://github.com/quickshell-mirror/quickshell) plug
 - **Regenerate with variant pagination** — retry the last assistant response with a single click; previous responses are preserved and navigable with `< 1/2 >` pagination arrows (ChatGPT-style), even mid-stream; each variant remembers which model generated it, so switching models between regenerations shows the correct model chip per variant
 - **Edit and regenerate** — click the edit button on any user message to modify it; sending the edit removes all messages after it and regenerates from the new text
 - **Export conversation** — copy the full conversation as markdown to clipboard, or save to a `.md` file in your home directory
+- **Flexible panel placement** — move the panel between the left and right screen edges and expand it when screen space permits
 - **Optional persistence** — messages are ephemeral by default; enable **Save Chat History** in settings to persist conversations across sessions (API keys are never stored)
 - **System keyring integration** — store API keys encrypted in GNOME Keyring / KDE Wallet / KeePassXC via `secret-tool`; env vars as fallback; keyring UI hidden gracefully when `secret-tool` is not installed
 - **Security-first** — API keys stored encrypted in the system keyring (never by PluginService), request bodies sent via stdin (never in `/proc/cmdline`), API keys passed as headers (not URL params), MCP calls require per-tool and per-call approval, link schemes are restricted, URLs are validated, and process output is bounded
 
 ## Requirements
 
-- [Quickshell](https://github.com/quickshell-mirror/quickshell) with a configuration that provides `qs.Common`, `qs.Widgets`, and `qs.Services` modules
+- [DankMaterialShell (DMS)](https://danklinux.com), which provides Quickshell and the required `qs.Common`, `qs.Widgets`, and `qs.Services` modules
 - `curl` (used for API requests)
 - `wl-copy` from [wl-clipboard](https://github.com/bugaevc/wl-clipboard) (for the copy button)
+- `install` from GNU coreutils (for owner-only `.md` file exports)
 - `secret-tool` from [libsecret](https://wiki.gnome.org/Projects/Libsecret) (optional — for storing API keys in the system keyring)
 - For Ollama: [Ollama](https://ollama.com) installed and at least one model pulled
 - For experimental MCP tools: native Linux, Node.js 24.17.0 or newer within major version 24, npm, and the globally installed `mcp-remote` 0.1.38 release. Both Node's bundled Undici and the bridge's direct Undici dependency must be >=7.28.0 and <8; the resolved `open` browser launcher must be the reviewed 10.1.0 or 10.2.0 release
 
 ## Installation
 
-Place or symlink this directory into your Quickshell configuration's plugin path, then reload the shell.
+Place or symlink this directory into the DMS plugin path, enable it, then open the panel:
+
+```sh
+ln -s /path/to/ephemera ~/.config/DankMaterialShell/plugins/ephemera
+dms ipc call plugins enable ephemera
+dms ipc call ephemera toggle
+```
+
+After updating QML or JavaScript files, use `dms restart`; the plugin reload IPC does not reliably invalidate every compiled QML artifact.
 
 ## Configuration
 
@@ -94,25 +102,25 @@ HTTPS is the default for remote servers. Plain HTTP is accepted automatically on
 
 ### Settings
 
-All settings are configurable from the in-app settings panel (tune icon):
+The in-app settings panel (tune icon) includes:
 
 - **Provider** — ollama, openai, anthropic, gemini, or custom
-- **Model** — auto-discovered dropdown for Ollama, free-text for others
+- **Model** — auto-discovered choices for Ollama, curated choices for OpenAI, Anthropic, and Gemini, plus manual model entry for every provider
 - **Ollama URL** — defaults to `http://localhost:11434`
 - **Ollama Thinking** — Default, Off, Low, Medium, or High reasoning effort for Ollama models that support it; Off requests no thinking
 - **Ollama Context Window** — optional 4K–128K native-chat context for MCP/tool rounds; the model default remains the memory-efficient default
-- **Custom Base URL** — for OpenAI-compatible endpoints (validated: http/https only, valid hostname, max 2048 chars)
+- **Custom Base URL** — for OpenAI-compatible endpoints; remote endpoints require HTTPS, while plaintext HTTP is limited to `localhost` and `127.0.0.0/8`; credentials, invalid hostnames, unsafe characters, and URLs over 2048 characters are rejected
 - **Extended Thinking** — toggle for Anthropic provider; uses adaptive thinking where supported and a bounded manual budget on older models, while omitting incompatible sampling parameters
 - **System Prompt** — prepended to every request; quick-select presets available or enter custom text
-- **Temperature** — 0.0 (focused) to 2.0 (creative)
-- **Max Tokens** — 256 to 16,384
+- **Temperature** — provider-dependent range: 0.0–2.0 generally and 0.0–1.0 for Anthropic; omitted for models that do not accept custom temperature
+- **Max Tokens** — 256 to 131,072, or **No limit**; provider/model output caps may still apply
 - **Context Turns** — number of recent conversation turns sent to the API (2–100)
 - **Request Timeout** — max time for a streaming response (30–600s, default 300s)
 - **Ollama Controls** — refresh models button, explicit start/stop button, idle auto-stop timeout (Never, 5, 10, 15, or 30 minutes; only auto-stops Ollama if the plugin started it)
-- **Save Chat History** — persist conversations across sessions (off by default)
+- **Save Chat History** — persist a bounded recent conversation across sessions (off by default; see Known Limitations)
 - **Experimental MCP Tools** — Ollama-only server connection, transport consent, complete contract review, and per-call confirmation
 
-Settings are persisted via Quickshell's `PluginService`. API keys are stored only in the system keyring, never by PluginService.
+Settings are persisted through DMS `PluginService`. API keys come only from the system keyring or environment variables and are never stored by PluginService.
 
 ## Usage
 
@@ -123,10 +131,11 @@ Open the slideout panel via your shell's configured keybind or action. Type a me
 | Shortcut | Action |
 |---|---|
 | Enter | Send message |
+| Ctrl+Enter | Send message |
 | Shift+Enter | Insert newline |
 | Escape | Close panel |
-| Ctrl+L | Clear chat |
-| Ctrl+N | New conversation (clear chat + composer) |
+| Ctrl+L | Clear conversation and composer |
+| Ctrl+N | Clear conversation and composer |
 | Ctrl+Shift+S | Toggle settings |
 | Up arrow | Recall last sent message (when composer is empty) |
 
@@ -134,25 +143,28 @@ Open the slideout panel via your shell's configured keybind or action. Type a me
 - **Edit** — hover over a user message to reveal the edit button; modify the message and press Enter to regenerate the conversation from that point (removes all subsequent messages)
 - **Regenerate** — hover over the last assistant message to reveal the regenerate button; after regenerating, use the `<` `>` arrows to navigate between response variants; each variant's model chip shows which model generated it
 - **Export** — click the copy icon in the header to copy the conversation as markdown, or the save icon to write it to `~/ephemera-chat-<timestamp>.md`
-- **Expand** — use the expand button to widen the panel (480px → 960px); model chips in the header and message bubbles expand to show full model names
+- **Expand** — use the expand button to widen the panel from 480px toward 960px; the width is capped to the active screen
+- **Move panel** — use the edge button beside Expand/Collapse to move the panel between the left and right edges; the preference is saved
 - **Error hints** — HTTP errors display contextual suggestions (e.g., 401 → check API key, 429 → rate limited)
 - **Missing API key banner** — when a required API key is absent, a prominent banner in the chat area directs you to Settings (if keyring is available) or shows which environment variable to set
 
 ## Known Limitations
 
 - **Multi-screen**: The chat service is shared across all screens. Opening the panel on two monitors shows the same conversation.
+- **Provider isolation**: Changing providers clears the live conversation, variants, and any persisted chat snapshot. Export anything important before switching providers. Changing models within one provider preserves the conversation.
+- **Persistence bounds**: Saved history retains at most 200 completed messages, 10 variants per assistant response, 32 KiB per content or thinking field, 512 bytes per model name, and a 1 MiB serialized snapshot. Older turns and variants are pruned first; truncated saved text receives an explicit marker, and the UI reports when loaded history was trimmed. The live in-memory conversation is not truncated.
 
 ## Troubleshooting
 
 ### Ollama not detected
 
-Ephemera pings `http://localhost:11434/api/tags` on startup. If Ollama isn't found:
+Ephemera checks `http://localhost:11434/api/version` for readiness, then uses `/api/tags` to discover models. If Ollama isn't found:
 
 1. Verify Ollama is installed: `ollama --version`
 2. Pull at least one model: `ollama pull llama3.2`
 3. Ephemera will auto-start `ollama serve` if it isn't running — check that the Ollama binary is in your `$PATH` when Quickshell starts
 4. If using a custom URL, verify it in Settings → Provider → Ollama URL
-5. Use the **Connect to Ollama** button in Settings to retry
+5. Use **Start Ollama** to retry startup, or **Refresh Models** after the service becomes ready
 
 ### API key not detected
 
@@ -192,7 +204,7 @@ The default timeout is 300 seconds. For large models or slow hardware, increase 
 
 ## Custom Provider
 
-The "custom" provider works with any OpenAI-compatible API (LocalAI, vLLM, LM Studio, OpenRouter, Groq, etc.). Set the base URL in Settings and export `EPHEMERA_API_KEY`. Ephemera appends `/v1/chat/completions` automatically unless the URL already ends with a versioned path.
+The "custom" provider works with OpenAI-compatible chat-completions APIs such as LocalAI, vLLM, LM Studio, OpenRouter, and Groq. Set the base URL in Settings and export `EPHEMERA_API_KEY`. Remote endpoints must use HTTPS; plaintext HTTP is accepted only for `localhost` or an explicit `127.0.0.0/8` address. Ephemera appends `/v1/chat/completions` automatically unless the URL already ends with a versioned path.
 
 ## License
 

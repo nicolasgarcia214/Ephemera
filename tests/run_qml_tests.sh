@@ -77,6 +77,7 @@ cp "$ROOT/tests/PersistenceHarness.qml" "$CONFIG_DIR/PersistenceHarness.qml"
 cp "$ROOT/tests/OllamaLifecycleHarness.qml" "$CONFIG_DIR/OllamaLifecycleHarness.qml"
 cp "$ROOT/tests/KeyringHarness.qml" "$CONFIG_DIR/KeyringHarness.qml"
 cp "$ROOT/tests/OllamaProbeLimitHarness.qml" "$CONFIG_DIR/OllamaProbeLimitHarness.qml"
+cp "$ROOT/tests/EphemeraPanelHarness.qml" "$CONFIG_DIR/EphemeraPanelHarness.qml"
 cp "$ROOT/tests/ShippingCompileHarness.qml" "$CONFIG_DIR/ShippingCompileHarness.qml"
 cp "$ROOT/tests/fixtures/qml/Common/"* "$CONFIG_DIR/Common/"
 cp "$ROOT/tests/fixtures/qml/Services/"* "$CONFIG_DIR/Services/"
@@ -227,9 +228,10 @@ run_harness() {
     fi
     qpa_platform=offscreen
     wayland_display=""
-    if [ "$harness" = "ShippingCompileHarness" ]; then
+    if [ "$harness" = "ShippingCompileHarness" ] \
+            || [ "$harness" = "EphemeraPanelHarness" ]; then
         if [ -z "$SHIPPING_WAYLAND_SOCKET" ]; then
-            printf 'shipping QML compile test requires Wayland or headless Weston\n' >&2
+            printf 'Wayland QML harness requires an active compositor or headless Weston\n' >&2
             exit 1
         fi
         qpa_platform=wayland
@@ -311,4 +313,5 @@ run_harness PersistenceHarness EPHEMERA_PERSISTENCE_TEST
 run_ollama_lifecycle_harness
 run_harness KeyringHarness EPHEMERA_KEYRING_TEST 1
 run_ollama_probe_limit_harness
+run_harness EphemeraPanelHarness EPHEMERA_PANEL_QML_TEST
 run_harness ShippingCompileHarness EPHEMERA_SHIPPING_COMPILE_TEST

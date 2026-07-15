@@ -6,14 +6,25 @@ endpoint_url=""
 chat_request=0
 max_filesize=""
 read_max_filesize=0
+max_time=""
+read_max_time=0
 for argument do
     if [ "$read_max_filesize" -eq 1 ]; then
         max_filesize=$argument
         read_max_filesize=0
         continue
     fi
+    if [ "$read_max_time" -eq 1 ]; then
+        max_time=$argument
+        read_max_time=0
+        continue
+    fi
     if [ "$argument" = "--max-filesize" ]; then
         read_max_filesize=1
+        continue
+    fi
+    if [ "$argument" = "--max-time" ]; then
+        read_max_time=1
         continue
     fi
     case "$argument" in
@@ -94,6 +105,12 @@ emit_probe_response() {
             emit_exact_json '{"models":[],"padding":"'
             exit 63
             ;;
+        empty:version)
+            printf '{"version":"0.11.0"}\n'
+            ;;
+        empty:tags)
+            :
+            ;;
         *)
             printf 'unexpected Ollama probe fixture mode: %s:%s\n' \
                 "$mode" "$probe" >&2
@@ -107,12 +124,17 @@ if [ -n "${EPHEMERA_OLLAMA_PROBE_DIR:-}" ]; then
         printf 'Ollama probe missing 65536-byte max-filesize: %s\n' "$*" >&2
         exit 2
     fi
+    if [ "$max_time" != "5" ]; then
+        printf 'Ollama probe missing 5-second max-time: %s\n' "$*" >&2
+        exit 2
+    fi
     case "$endpoint_url" in
         http://127.0.0.10:11434/*) emit_probe_response normal "$endpoint" ;;
         http://127.0.0.11:11434/*) emit_probe_response exact "$endpoint" ;;
         http://127.0.0.12:11434/*) emit_probe_response overflow "$endpoint" ;;
         http://127.0.0.13:11434/*) emit_probe_response discovery "$endpoint" ;;
         http://127.0.0.14:11434/*) emit_probe_response gpu "$endpoint" ;;
+        http://127.0.0.15:11434/*) emit_probe_response empty "$endpoint" ;;
         *)
             printf 'unexpected Ollama probe URL: %s\n' "$endpoint_url" >&2
             exit 2

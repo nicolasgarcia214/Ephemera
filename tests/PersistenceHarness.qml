@@ -353,6 +353,11 @@ ShellRoot {
                 && service.messagesModel.get(198).thinking.length
                     === service.persistedThinkingByteLimit,
                 "oversized persisted fields were not truncated at their bounds")) return;
+        if (!check(service.messagesModel.get(198).content.endsWith(
+                    "[Truncated when saved by Ephemera.]")
+                && service.messagesModel.get(198).thinking.endsWith(
+                    "[Truncated when saved by Ephemera.]"),
+                "persisted field truncation was not disclosed in the chat")) return;
         if (!check(service.variantStore["assistant-100"].length
                     === service.maxVariantsPerMessage
                 && service.variantStore["assistant-100"][0].content === "variant-1"
@@ -360,10 +365,12 @@ ShellRoot {
                 && service.messagesModel.get(199).variantCount === 10
                 && service.variantStore["orphan-assistant"] === undefined,
                 "variant bounds, references, or orphan pruning were inconsistent")) return;
-        if (!check(payload && payload.messages.length === 200
+        if (!check(service.chatHistoryTrimmed
+                && payload && payload.trimmed === true
+                && payload.messages.length === 200
                 && JSON.stringify(payload).length <= service.persistedPayloadByteLimit
                 && PluginService.pluginStateSaveCount === 1,
-                "normalized versioned state was not saved atomically within its byte cap")) return;
+                "normalized state did not persist its trim notice within the byte cap")) return;
 
         boundedPayload = JSON.stringify(payload);
         boundedSaveCount = PluginService.pluginStateSaveCount;
@@ -374,7 +381,8 @@ ShellRoot {
         var service = serviceLoader.item;
         var payload = PluginService.loadPluginState(
             "ephemera", "chatState", null);
-        if (!check(service.messagesModel.count === 200
+        if (!check(service.chatHistoryTrimmed
+                && service.messagesModel.count === 200
                 && service.messagesModel.get(0).id === "user-1"
                 && service.messagesModel.get(199).id === "assistant-100"
                 && service.messageIndexMap["assistant-100"] === 199,

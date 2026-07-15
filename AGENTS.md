@@ -8,8 +8,8 @@ Source lives in `src/`. Hot-reload with `dms restart` (full restart required —
 
 Depends on parent config modules: `qs.Common` (Theme), `qs.Widgets` (Dank* components, StyledText), `qs.Services` (PluginService).
 
-Unit tests: `node tests/run_tests.js`
-MCP QML lifecycle test: `tests/run_qml_tests.sh` (requires Quickshell)
+Unit and source-contract tests: `node tests/run_tests.js`
+MCP transport, QML lifecycle, and shipping compile tests: `tests/run_qml_tests.sh` (requires Quickshell)
 Live panel geometry test: `tests/run_panel_qml_test.sh` (requires Quickshell and an active Wayland compositor)
 
 ## Architecture
@@ -21,8 +21,8 @@ EphemeraService.qml is the **coordinator** that owns message state (`messagesMod
 - **Qt textFormat binding bug** — switching `textFormat` between `RichText`/`PlainText` destroys the `text` binding. Must re-establish via `Qt.binding()` in a `Connections` handler. See `MessageBubble.qml`.
 - **Provider switch clears chat** — changing providers clears history and index maps to prevent stale `messageIndexMap` lookups. Model changes within the same provider preserve conversation.
 - **ListModel limitations** — QML `ListModel` can't store nested arrays or complex objects. Use JS side-channel maps (`variantStore`, `messageIndexMap`) alongside the model.
-- **Ollama safety net** — `Component.onDestruction` fires `pkill` as last resort. The `_shuttingDown` flag prevents double-shutdown. External Ollama is never auto-stopped by the idle timer.
-- **5MB stdout buffer cap** — exceeding it kills the curl process to prevent memory exhaustion.
+- **Ollama destruction safety net** — `Component.onDestruction` requests termination of the exact owned `Process` and uses `kill` only with its captured PID. There is deliberately no `pkill` fallback when ownership identity is unavailable. External Ollama is never auto-stopped by the idle timer.
+- **Main stdout buffer cap** — exceeding 5,242,880 QML string code units kills the response curl process; Ollama readiness, discovery, and GPU probes separately use curl-enforced 64 KiB raw-byte caps.
 - **DMS permissions are silent** — missing permission declarations in `plugin.json` prevent PluginService calls without logging errors. Current permissions: `settings_read`, `settings_write`.
 - **pluginData null during init** — use `??` operator; values are `undefined` before first load.
 - **DMS auto-injected properties** — `pluginData`, `pluginService`, `pluginId` are injected into the root component. Don't redeclare them.
@@ -37,7 +37,7 @@ EphemeraService.qml is the **coordinator** that owns message state (`messagesMod
 - **Root IDs** — root items: `id: root`, delegate roots: `id: delegate`.
 - **Private properties** — prefix with `_` (e.g., `_streamContent`).
 - **JS libraries** — `.js` files in `src/lib/` are `.pragma library` pure-function modules. Import with namespace aliases (`as Providers`). All public functions have JSDoc comments.
-- **State centralization** — all mutable state in EphemeraService.qml. Child services own internal state but communicate changes via signals/property aliases.
+- **State centralization** — shared conversation, variant, and provider state lives in EphemeraService.qml. Child services own bounded lifecycle/transport state and communicate outputs through signals and narrow facade properties.
 - **Property grouping** — use `// --- Section name ---` comment headers.
 - **Theme** — never hardcode colors/spacing/fonts. Use `Theme` singleton from `qs.Common`.
 - **UI signals** — extracted components communicate with parent via signals, not direct property writes.
@@ -48,7 +48,7 @@ EphemeraService.qml is the **coordinator** that owns message state (`messagesMod
 - **Deferred markdown** — `markdownToHtml()` runs only after streaming completes, never per-delta. `_lastRenderKey` includes the message text and every theme color passed to the renderer so theme changes invalidate HTML without redundant re-renders.
 - **Variants, not replacements** — regeneration saves current response into `variantStore[msgId]` and streams a new one. Capped at 10 (FIFO). Cancel preserves partial content as a navigable variant.
 - **Three thinking paths** — (1) `<think>` tags in content stream (Ollama), (2) `reasoning_content` fields (DeepSeek API), (3) Anthropic extended thinking with interleaved-thinking header.
-- **Settings vs state** — `savePluginData` for user preferences (requires permissions); `savePluginState` for runtime data like chat history (no permissions, debounced 150ms, atomic).
+- **Settings vs state** — `savePluginData` for user preferences (requires permissions); `savePluginState` for runtime data like chat history (no permissions, debounced 150ms, atomic). Persisted pruning carries a durable `trimmed` disclosure flag and adds explicit markers to truncated content/thinking fields without changing the live model.
 - **Exponential backoff with jitter** — `Backoff.js` handles error cooldown. Resets on successful stream finalization.
 - **Bounded MCP discovery** — MCP stdout uses `SplitParser`; tool discovery is capped by message size, total schema size, pages, and tool count. Invalid, duplicate, deeply nested, and task-required tools are ignored.
 
@@ -57,9 +57,9 @@ EphemeraService.qml is the **coordinator** that owns message state (`messagesMod
 - API keys: system keyring (D-Bus Secret Service) or env vars only. Never persisted by PluginService.
 - `secret-tool store` receives keys via stdin — never in `/proc/cmdline`.
 - HTML escaped before markdown rendering; link schemes whitelisted to http/https.
-- Custom URLs validated: http(s) only, valid hostname, max 2048 chars, no unsafe characters.
+- Custom provider URLs require HTTPS remotely; plaintext HTTP is limited to exact `localhost` or dotted-decimal `127.0.0.0/8`. Credentials, invalid hosts/ports, unsafe characters, and values over 2048 characters are rejected.
 - MCP tool access requires exact-contract approval, bounded input-schema validation at the execution boundary, and confirmation of every call. Malformed names, arguments, schemas, and results fail closed.
 - Remote MCP uses HTTPS by default. Non-loopback HTTP requires consent bound to the exact endpoint; URL credentials and query strings are rejected. Bridge Fetch redirects fail closed so an approved HTTPS endpoint cannot downgrade to HTTP; external-browser navigation remains browser-controlled. The local Node and global npm installation are trusted rather than cryptographically attested.
-- `mcp-remote` versions below 0.1.16 are blocked due to CVE-2025-6514.
+- Only the reviewed `mcp-remote` 0.1.38 release is accepted; older releases, including versions affected by CVE-2025-6514, and unreviewed newer releases fail closed.
 - `forceShutdownExternal()` uses `pkill -x` (exact match) to avoid killing unrelated processes.
 - Chat persistence opt-in; API keys never stored in PluginService.

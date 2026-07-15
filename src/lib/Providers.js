@@ -391,6 +391,11 @@ function _isOpenAiOSeriesModel(model) {
     return /^o[0-9]+(?:$|[-_])/.test(String(model || "").toLowerCase());
 }
 
+function _isLegacyOpenAiGpt5Model(model) {
+    return /^gpt-5(?:$|-\d{4}-\d{2}-\d{2}$|-(?:mini|nano)(?:$|[-_]))/.test(
+        String(model || "").toLowerCase());
+}
+
 function _openaiCompatibleRequest(payload, apiKey, provider) {
     var url = openaiChatCompletionsUrl(payload.baseUrl || "https://api.openai.com");
     var safeKey = sanitizeApiKey(apiKey);
@@ -683,17 +688,18 @@ function getModelList(provider) {
 /**
  * Clamp temperature to a provider's valid range, or return undefined if unsupported.
  *
- * OpenAI o-series models do not support temperature at all.
+ * OpenAI o-series and older GPT-5 reasoning models do not support temperature.
  * Falls back to the provider's default temperature when the input is null/undefined.
  *
  * @param {string} provider - Provider identifier.
- * @param {string} model - Model name (checked for OpenAI o-series compatibility).
+ * @param {string} model - Model name (checked for OpenAI compatibility).
  * @param {number} temperature - Requested temperature value.
  * @returns {number|undefined} Clamped temperature, or undefined if the model rejects temperature.
  */
 function clampTemperature(provider, model, temperature) {
     var info = registry[provider] || registry["custom"];
-    if (provider === "openai" && _isOpenAiOSeriesModel(model))
+    if (provider === "openai" && (_isOpenAiOSeriesModel(model)
+            || _isLegacyOpenAiGpt5Model(model)))
         return undefined;
     var t = (temperature !== undefined && temperature !== null) ? temperature : info.tempDefault;
     return Math.max(info.tempMin, Math.min(info.tempMax, t));

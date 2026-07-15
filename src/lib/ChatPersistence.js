@@ -9,6 +9,7 @@ var maxThinkingBytes = 32768;
 var maxModelBytes = 512;
 var maxIdBytes = 256;
 var maxSerializedBytes = 1048576;
+var truncationMarker = "\n\n[Truncated when saved by Ephemera.]";
 
 // Validation work is capped before walking attacker-controlled collections.
 // Ordinary oversized state below these inspection ceilings is normalized and
@@ -118,11 +119,13 @@ function _keysAllowed(object, allowed, maximum) {
 function _validateStructure(payload, version) {
     if (!_isObject(payload) || payload.version !== version
             || !Array.isArray(payload.messages) || !_isObject(payload.variants)
+            || (payload.trimmed !== undefined
+                && typeof payload.trimmed !== "boolean")
             || payload.messages.length > maxInputMessages
             || !_keysAllowed(payload, function(key) {
                 return key === "version" || key === "messages"
-                    || key === "variants";
-            }, 3))
+                    || key === "variants" || key === "trimmed";
+            }, 4))
         return false;
 
     var ids = {};
@@ -187,9 +190,18 @@ function _validateStructure(payload, version) {
     return true;
 }
 
-function _sanitizeText(value, limit, result) {
-    var normalized = _truncateUtf8(value || "", limit);
-    if (normalized !== (value || "")) result.changed = true;
+function _sanitizeText(value, limit, result, disclose) {
+    var source = value || "";
+    var normalized = _truncateUtf8(source, limit);
+    if (normalized !== source) {
+        result.changed = true;
+        result.trimmed = true;
+        if (disclose) {
+            var markerBytes = utf8ByteLength(truncationMarker);
+            normalized = _truncateUtf8(source,
+                Math.max(0, limit - markerBytes)) + truncationMarker;
+        }
+    }
     return normalized;
 }
 
@@ -198,8 +210,10 @@ function _sanitizeMessage(message, result) {
     if (status === "streaming") status = "ok";
     var normalized = {
         role: message.role,
-        content: _sanitizeText(message.content, maxContentBytes, result),
-        thinking: _sanitizeText(message.thinking || "", maxThinkingBytes, result),
+        content: _sanitizeText(
+            message.content, maxContentBytes, result, true),
+        thinking: _sanitizeText(
+            message.thinking || "", maxThinkingBytes, result, true),
         id: message.id,
         timestamp: message.timestamp,
         status: status,
@@ -207,7 +221,8 @@ function _sanitizeMessage(message, result) {
             ? 0 : message.variantIndex,
         variantCount: message.variantCount === undefined
             ? 1 : message.variantCount,
-        modelName: _sanitizeText(message.modelName || "", maxModelBytes, result)
+        modelName: _sanitizeText(
+            message.modelName || "", maxModelBytes, result, false)
     };
     if (message.status === undefined || message.thinking === undefined
             || message.variantIndex === undefined
@@ -235,11 +250,12 @@ function _sanitizeVariants(message, rawVariants, result) {
     var variants = [];
     for (var i = start; i < source.length; i++) {
         variants.push({
-            content: _sanitizeText(source[i].content, maxContentBytes, result),
+            content: _sanitizeText(
+                source[i].content, maxContentBytes, result, true),
             thinking: _sanitizeText(source[i].thinking || "",
-                                    maxThinkingBytes, result),
+                                    maxThinkingBytes, result, true),
             modelName: _sanitizeText(source[i].modelName || "",
-                                     maxModelBytes, result)
+                                     maxModelBytes, result, false)
         });
         if (source[i].thinking === undefined
                 || source[i].modelName === undefined)
@@ -278,12 +294,19 @@ function _sanitizeVariants(message, rawVariants, result) {
     return variants;
 }
 
-function _payloadBytes(version, messages, variants) {
-    return utf8ByteLength(JSON.stringify({
+function _buildPayload(version, messages, variants, trimmed) {
+    var payload = {
         version: version,
         messages: messages,
         variants: variants
-    }));
+    };
+    if (trimmed) payload.trimmed = true;
+    return payload;
+}
+
+function _payloadBytes(version, messages, variants, trimmed) {
+    return utf8ByteLength(JSON.stringify(
+        _buildPayload(version, messages, variants, trimmed)));
 }
 
 function _removeOldestVariant(turn, result) {
@@ -307,6 +330,7 @@ function _removeOldestVariant(turn, result) {
             message.variantCount = values.length;
         }
         result.changed = true;
+        result.trimmed = true;
         return true;
     }
     return false;
@@ -326,8 +350,24 @@ function _mergeOlderTurn(turn, messages, variants) {
     return { messages: mergedMessages, variants: mergedVariants };
 }
 
+function _mergeNewestTurns(turns, count) {
+    var messages = [];
+    var variants = {};
+    for (var i = 0; i < count; i++) {
+        var candidate = _mergeOlderTurn(turns[i], messages, variants);
+        messages = candidate.messages;
+        variants = candidate.variants;
+    }
+    return { messages: messages, variants: variants };
+}
+
 function _normalize(payload, version) {
-    var result = { changed: false };
+    var result = {
+        changed: payload.trimmed === false,
+        trimmed: payload.trimmed === true
+    };
+    var turns = [];
+    var retainedMessageCount = 0;
     var messages = [];
     var variants = {};
     var end = payload.messages.length;
@@ -335,8 +375,9 @@ function _normalize(payload, version) {
     while (end > 0) {
         var start = payload.messages[end - 1].role === "user" ? end - 1 : end - 2;
         var turnLength = end - start;
-        if (messages.length + turnLength > maxMessages) {
+        if (retainedMessageCount + turnLength > maxMessages) {
             result.changed = true;
+            result.trimmed = true;
             break;
         }
 
@@ -350,25 +391,51 @@ function _normalize(payload, version) {
                 turn.variants[normalizedMessage.id] = normalizedVariants;
         }
 
-        var candidate = _mergeOlderTurn(turn, messages, variants);
-        while (_payloadBytes(version, candidate.messages, candidate.variants)
-                > maxSerializedBytes && messages.length === 0
-                && _removeOldestVariant(turn, result)) {
-            candidate = _mergeOlderTurn(turn, messages, variants);
-        }
-        if (_payloadBytes(version, candidate.messages, candidate.variants)
-                > maxSerializedBytes) {
-            result.changed = true;
-            break;
-        }
-
-        messages = candidate.messages;
-        variants = candidate.variants;
+        turns.push(turn);
+        retainedMessageCount += turnLength;
         end = start;
     }
 
-    if (end > 0 || messages.length !== payload.messages.length)
+    if (end > 0 || retainedMessageCount !== payload.messages.length) {
         result.changed = true;
+        result.trimmed = true;
+    }
+
+    if (turns.length > 0) {
+        var newest = _mergeNewestTurns(turns, 1);
+        while (_payloadBytes(version, newest.messages, newest.variants, true)
+                > maxSerializedBytes
+                && _removeOldestVariant(turns[0], result)) {
+            newest = _mergeNewestTurns(turns, 1);
+        }
+
+        // Payload size only grows as older turns are added. Find the largest
+        // suffix that fits without serializing every growing prefix.
+        var low = 1;
+        var high = turns.length;
+        var best = 0;
+        var bestCandidate = { messages: [], variants: {} };
+        while (low <= high) {
+            var middle = Math.floor((low + high) / 2);
+            var candidate = _mergeNewestTurns(turns, middle);
+            var candidateTrimmed = result.trimmed || middle < turns.length;
+            if (_payloadBytes(version, candidate.messages, candidate.variants,
+                    candidateTrimmed) <= maxSerializedBytes) {
+                best = middle;
+                bestCandidate = candidate;
+                low = middle + 1;
+            } else {
+                high = middle - 1;
+            }
+        }
+
+        messages = bestCandidate.messages;
+        variants = bestCandidate.variants;
+        if (best < turns.length) {
+            result.changed = true;
+            result.trimmed = true;
+        }
+    }
 
     var retainedIds = {};
     for (var m = 0; m < messages.length; m++)
@@ -381,11 +448,8 @@ function _normalize(payload, version) {
         }
     }
 
-    result.payload = {
-        version: version,
-        messages: messages,
-        variants: variants
-    };
+    result.payload = _buildPayload(
+        version, messages, variants, result.trimmed);
     return result;
 }
 
@@ -437,9 +501,10 @@ function prepareState(payload, version) {
  * @param {Array} messages - Completed recent messages in display order.
  * @param {Object} variantStore - Live variant side-channel map.
  * @param {number} version - State schema version.
+ * @param {boolean} wasTrimmed - Preserve an earlier storage-limit notice.
  * @returns {?{payload: Object, changed: boolean}} Bounded snapshot, or null.
  */
-function createSnapshot(messages, variantStore, version) {
+function createSnapshot(messages, variantStore, version, wasTrimmed) {
     if (!Array.isArray(messages) || !_isObject(variantStore)) return null;
     var scopedVariants = {};
     for (var i = 0; i < messages.length; i++) {
@@ -448,9 +513,11 @@ function createSnapshot(messages, variantStore, version) {
                 && _hasOwn(variantStore, message.id))
             scopedVariants[message.id] = variantStore[message.id];
     }
-    return prepareState({
+    var payload = {
         version: version,
         messages: messages,
         variants: scopedVariants
-    }, version);
+    };
+    if (wasTrimmed === true) payload.trimmed = true;
+    return prepareState(payload, version);
 }
