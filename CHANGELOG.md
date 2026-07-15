@@ -1,5 +1,38 @@
 # Changelog
 
+## [1.2.0](https://github.com/nicolasgarcia214/Ephemera/compare/v1.1.0...v1.2.0) (2026-07-15)
+
+
+### Features
+
+* ✨ disclose saved-chat trimming and harden Ollama probes ([cf21f64](https://github.com/nicolasgarcia214/Ephemera/commit/cf21f64b9e45ca00971e3a2598464b0e67d4870a))
+
+
+### Bug Fixes
+
+* **anthropic:** request visible thinking summaries ([50c4ba8](https://github.com/nicolasgarcia214/Ephemera/commit/50c4ba8264268f1024ac8a221f2f429e5d058a3e))
+* **anthropic:** request visible thinking summaries ([2ea3cad](https://github.com/nicolasgarcia214/Ephemera/commit/2ea3cad73c52b49a249c6f5558c26abf33af1a45))
+* bound panel width to active screen ([#9017](https://github.com/nicolasgarcia214/Ephemera/issues/9017)) ([6e1c12d](https://github.com/nicolasgarcia214/Ephemera/commit/6e1c12d5733fce5ab1173cb74414a5f5dcbbb584))
+* capture trailing OpenAI stream usage ([3d1b982](https://github.com/nicolasgarcia214/Ephemera/commit/3d1b982dd38f86e2e621c7c4152859e533a05ef6))
+* **chat:** unify submission safety gates ([de68168](https://github.com/nicolasgarcia214/Ephemera/commit/de68168e0dcd78daeabc3b5382133e68d1aaa915))
+* confirm conversation export completion ([e4d78b1](https://github.com/nicolasgarcia214/Ephemera/commit/e4d78b1b25230e400c638be4f2b3c3c2babd291b))
+* handle in-stream provider failures ([13cd9bc](https://github.com/nicolasgarcia214/Ephemera/commit/13cd9bcd7b96d890639eb0603e6fe021025c181a))
+* honor DMS injected property contract ([#9019](https://github.com/nicolasgarcia214/Ephemera/issues/9019)) ([e6a9a6a](https://github.com/nicolasgarcia214/Ephemera/commit/e6a9a6a9ca49abc856750a77760d78228ccbe0f4))
+* keep keyring cache synchronized ([62b458a](https://github.com/nicolasgarcia214/Ephemera/commit/62b458a99ab70812874357fed20aab6a49869c28))
+* **markdown:** invalidate cache on theme changes ([52ad56e](https://github.com/nicolasgarcia214/Ephemera/commit/52ad56e8e1fd2a0c475901059343f07d5657dbc3))
+* **ollama:** bound probe response collectors ([21c79a6](https://github.com/nicolasgarcia214/Ephemera/commit/21c79a634672d808138f4548090736cf8d6b534b))
+* **ollama:** preserve lifecycle ownership ([94b1391](https://github.com/nicolasgarcia214/Ephemera/commit/94b139167e3226ef8329cd3eed2cd2cce54701da))
+* **ollama:** synchronize endpoint URL updates ([aed56ed](https://github.com/nicolasgarcia214/Ephemera/commit/aed56ed2654a405f96ac230a587dacf4b0d51686))
+* **persistence:** bound saved chat state ([10d1d42](https://github.com/nicolasgarcia214/Ephemera/commit/10d1d422d15480c1b6242b54ad67bdb6e451616c))
+* **persistence:** make chat state atomic ([4c52136](https://github.com/nicolasgarcia214/Ephemera/commit/4c521364b615f9dabf65b0a1001bd76f45148d2a))
+* **providers:** align advertised API contracts ([80e773e](https://github.com/nicolasgarcia214/Ephemera/commit/80e773eb1c23b1b1dfb360921594c2e8567b553c))
+* **providers:** align advertised API contracts ([10d5f1a](https://github.com/nicolasgarcia214/Ephemera/commit/10d5f1adc9c354b940ef28a0313334fe9bae668b))
+* **providers:** block remote plaintext custom URLs ([f34f236](https://github.com/nicolasgarcia214/Ephemera/commit/f34f2360d90c63e8fc2df2f2c31e4a87662f13f9))
+* **providers:** block remote plaintext custom URLs ([92b6731](https://github.com/nicolasgarcia214/Ephemera/commit/92b6731ca397e97963de3ea5b7f20d9f42aa4c90))
+* secure clipboard and curl process inputs ([#9007](https://github.com/nicolasgarcia214/Ephemera/issues/9007)) ([529e563](https://github.com/nicolasgarcia214/Ephemera/commit/529e5631efc923ad526fedaa2a3808a8dcf5be83))
+* **services:** 🐛 recover from failed process starts and tighten probe accuracy ([b0ddae4](https://github.com/nicolasgarcia214/Ephemera/commit/b0ddae4b41708d4bfcfe2eed4b02048206b80956))
+* **streaming:** snapshot request settings per stream ([5af8f09](https://github.com/nicolasgarcia214/Ephemera/commit/5af8f090663c161dc11b502a032690bb6a426cef))
+
 ## [1.1.0](https://github.com/nicolasgarcia214/Ephemera/compare/v1.0.1...v1.1.0) (2026-05-01)
 
 
