@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.1](https://github.com/nicolasgarcia214/Ephemera/compare/v1.2.0...v1.2.1) (2026-07-17)
+
+
+### Bug Fixes
+
+* 🐛 harden runtime lifecycles and release contracts ([0f5826e](https://github.com/nicolasgarcia214/Ephemera/commit/0f5826e09e6b3ce10bfa1d1897f374727b8950fc))
+
 ## [1.2.0](https://github.com/nicolasgarcia214/Ephemera/compare/v1.1.0...v1.2.0) (2026-07-15)
 
 
