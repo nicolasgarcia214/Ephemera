@@ -2,7 +2,7 @@
   "id": "ephemera",
   "name": "Ephemera",
   "description": "Ephemeral AI chat — ask quick questions, keep nothing",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "author": "nicolasgarcia214",
   "type": "daemon",
   "capabilities": [
