@@ -75,6 +75,7 @@ var StreamParser = loadPragmaLib("src/lib/StreamParser.js");
 var Providers = loadPragmaLib("src/lib/Providers.js");
 var Markdown = loadPragmaLib("src/lib/Markdown.js");
 var ChatExport = loadPragmaLib("src/lib/ChatExport.js");
+var Version = loadPragmaLib("src/lib/Version.js");
 var Mcp = loadPragmaLib("src/lib/Mcp.js");
 var McpSchema = loadPragmaLib("src/lib/McpSchema.js");
 var VariantStore = loadPragmaLib("src/lib/VariantStore.js");
@@ -1532,8 +1533,10 @@ section("Markdown.markdownToHtml — custom colors");
     var colors = {
         codeBg: "#FF0000",
         inlineCodeBg: "#00FF00",
+        tableHeaderBg: "#123456",
         blockquoteBg: "#0000FF",
-        blockquoteBorder: "#FFFFFF"
+        blockquoteBorder: "#FFFFFF",
+        blockquoteText: "#FEDCBA"
     };
     var r = Markdown.markdownToHtml("```\ncode\n```", colors);
     assert(r.indexOf("#FF0000") >= 0, "custom code background color applied");
@@ -1544,6 +1547,10 @@ section("Markdown.markdownToHtml — custom colors");
     r = Markdown.markdownToHtml("> quote", colors);
     assert(r.indexOf("#0000FF") >= 0, "custom blockquote background");
     assert(r.indexOf("#FFFFFF") >= 0, "custom blockquote border");
+    assert(r.indexOf("#FEDCBA") >= 0, "custom blockquote text color");
+
+    r = Markdown.markdownToHtml("| Header |\n| --- |\n| Cell |", colors);
+    assert(r.indexOf("#123456") >= 0, "custom table header background");
 })();
 
 section("Markdown.renderCacheKey — text and theme colors");
@@ -1551,8 +1558,10 @@ section("Markdown.renderCacheKey — text and theme colors");
     var colors = {
         codeBg: "#111111",
         inlineCodeBg: "#222222",
+        tableHeaderBg: "#252525",
         blockquoteBg: "#333333",
-        blockquoteBorder: "#444444"
+        blockquoteBorder: "#444444",
+        blockquoteText: "#555555"
     };
     var original = Markdown.renderCacheKey("same text", colors);
 
@@ -1566,7 +1575,8 @@ section("Markdown.renderCacheKey — text and theme colors");
         "text changes invalidate the cached render"
     );
 
-    ["codeBg", "inlineCodeBg", "blockquoteBg", "blockquoteBorder"].forEach(function(name) {
+    ["codeBg", "inlineCodeBg", "tableHeaderBg", "blockquoteBg",
+        "blockquoteBorder", "blockquoteText"].forEach(function(name) {
         var changed = Object.assign({}, colors);
         changed[name] = "#ABCDEF";
         assert(
@@ -1630,10 +1640,12 @@ section("ChatExport.buildMarkdown");
 section("ChatExport.generateFilename");
 (function() {
     var f = ChatExport.generateFilename("/home/user");
+    var second = ChatExport.generateFilename("/home/user");
     assert(f.startsWith("/home/user/ephemera-chat-"), "starts with home dir");
     assert(f.endsWith(".md"), "ends with .md");
     assert(f.indexOf(":") < 0, "no colons in filename");
     assert(f.indexOf(".") === f.length - 3 || f.indexOf(".") < f.length - 3, "dots only in extension");
+    assert(f !== second, "back-to-back exports never reuse a filename");
 
     f = ChatExport.generateFilename("");
     assert(f.startsWith("/ephemera-chat-"), "empty home dir uses /");
@@ -2528,6 +2540,41 @@ section("Providers.validateUrl");
     assert(!r.valid, "rejects hostname starting with hyphen");
 })();
 
+section("Providers.validateOllamaUrl and local lifecycle scope");
+
+(function() {
+    var r = Providers.validateOllamaUrl("http://localhost:11434");
+    assert(r.valid, "allows default localhost Ollama over HTTP");
+    assert(Providers.isManagedLocalOllamaUrl("http://localhost:11434/"),
+        "default localhost endpoint is process-managed");
+    assert(Providers.isManagedLocalOllamaUrl("http://127.0.0.1:11434"),
+        "default numeric loopback endpoint is process-managed");
+
+    r = Providers.validateOllamaUrl("http://127.42.0.1:11434");
+    assert(r.valid, "allows non-default loopback Ollama over HTTP");
+    assert(!Providers.isManagedLocalOllamaUrl("http://127.42.0.1:11434"),
+        "non-default loopback endpoint remains probe-only");
+
+    r = Providers.validateOllamaUrl("https://ollama.example.test");
+    assert(r.valid, "allows remote Ollama over HTTPS");
+    assert(!Providers.isManagedLocalOllamaUrl("https://ollama.example.test"),
+        "remote HTTPS endpoint remains probe-only");
+
+    r = Providers.validateOllamaUrl("http://ollama.example.test:11434");
+    assert(!r.valid, "rejects remote Ollama over plaintext HTTP");
+    assertEqual(r.error,
+        "Ollama HTTP is allowed only for localhost or 127.0.0.0/8; use HTTPS for remote endpoints.",
+        "remote Ollama rejection explains the HTTPS policy");
+
+    var request = Providers.buildRequest("ollama", {
+        baseUrl: "http://ollama.example.test:11434",
+        model: "test-model",
+        messages: []
+    }, "");
+    assertEqual(request.error, r.error,
+        "request builder revalidates Ollama transport policy");
+})();
+
 // ═════════════════════════════════════════════════════════════════
 // Backoff.js tests
 // ═════════════════════════════════════════════════════════════════
@@ -2633,6 +2680,10 @@ section("Providers.getModelList");
     var gemini = Providers.getModelList("gemini");
     assert(Array.isArray(gemini), "gemini returns an array");
     assert(gemini.length > 0, "gemini has models");
+    assert(gemini.indexOf("gemini-3.5-flash") >= 0,
+        "gemini includes the current stable Gemini 3.5 Flash model");
+    assert(gemini.indexOf("gemini-3-flash-preview") < 0,
+        "gemini excludes the superseded Gemini 3 Flash preview");
     assert(gemini.indexOf("gemini-2.5-flash") >= 0, "gemini includes gemini-2.5-flash");
     assert(gemini.indexOf("gemini-3.1-flash-lite") >= 0, "gemini includes Flash-Lite GA replacement");
     assert(gemini.indexOf("gemini-3.1-flash-lite-preview") < 0, "gemini excludes shut-down Flash-Lite preview");
@@ -2823,6 +2874,50 @@ section("ChatHeader action tooltips");
     });
 })();
 
+section("Keyboard and accessibility contracts");
+
+(function() {
+    var headerSource = fs.readFileSync(
+        path.join(__dirname, "..", "src/components/ChatHeader.qml"), "utf8");
+    var chatSource = fs.readFileSync(
+        path.join(__dirname, "..", "src/components/EphemeraChat.qml"), "utf8");
+    var bubbleSource = fs.readFileSync(
+        path.join(__dirname, "..", "src/components/MessageBubble.qml"), "utf8");
+
+    [
+        [headerSource, "providerPillButton", "Choose provider and model"],
+        [chatSource, "scrollToBottomButton", "Scroll to new messages"],
+        [bubbleSource, "streamingBubbleThinkingButton", "model thinking"],
+        [bubbleSource, "thinkingSectionButton", "model thinking"],
+        [bubbleSource, "streamingStatsThinkingButton", "model thinking"],
+        [bubbleSource, "persistedStatsButton", "response statistics"]
+    ].forEach(function(contract) {
+        assert(contract[0].indexOf("id: " + contract[1]) >= 0
+                && contract[0].indexOf(contract[2]) >= 0,
+            contract[1] + " exposes an accessible name");
+    });
+    assertEqual((headerSource.match(/Accessible\.role: Accessible\.Button/g) || []).length,
+        1, "provider pill exposes a button role");
+    assertEqual((chatSource.match(/Accessible\.role: Accessible\.Button/g) || []).length,
+        1, "scroll-to-bottom control exposes a button role");
+    assertEqual((bubbleSource.match(/Accessible\.role: Accessible\.Button/g) || []).length,
+        4, "thinking and statistics controls expose button roles");
+    assertEqual((headerSource.match(/Accessible\.onPressAction: activate\(\)/g) || []).length
+            + (chatSource.match(/Accessible\.onPressAction: activate\(\)/g) || []).length
+            + (bubbleSource.match(/Accessible\.onPressAction: activate\(\)/g) || []).length,
+        6, "assistive-technology press actions activate every custom button");
+    assert((headerSource.match(/activeFocusOnTab:/g) || []).length >= 1
+            && (chatSource.match(/activeFocusOnTab:/g) || []).length >= 1
+            && (bubbleSource.match(/activeFocusOnTab:/g) || []).length >= 4,
+        "custom pointer controls participate in keyboard focus traversal");
+    assert((headerSource.match(/Keys\.onPressed:/g) || []).length >= 1
+            && (chatSource.match(/Keys\.onPressed:/g) || []).length >= 1
+            && (bubbleSource.match(/Keys\.onPressed:/g) || []).length >= 4,
+        "custom pointer controls activate from Enter or Space");
+    assert(headerSource.indexOf("function showToast") < 0,
+        "dead ChatHeader toast stub was removed");
+})();
+
 section("Ollama process identity");
 
 (function() {
@@ -2924,6 +3019,10 @@ section("Conversation export lifecycle wiring");
         path.join(__dirname, "..", "src/services/StreamingService.qml"),
         "utf8"
     );
+    var exportSource = fs.readFileSync(
+        path.join(__dirname, "..", "src/services/ExportService.qml"),
+        "utf8"
+    );
     var coordinatorSource = fs.readFileSync(
         path.join(__dirname, "..", "src/services/EphemeraService.qml"),
         "utf8"
@@ -2942,9 +3041,9 @@ section("Conversation export lifecycle wiring");
     );
 
     assert(
-        streamingSource.indexOf('execDetached(["wl-copy"') < 0
-            && streamingSource.indexOf('property var _clipboardExportCommand: ["wl-copy", "--"]') >= 0,
-        "conversation clipboard export uses a managed stdin process"
+        exportSource.indexOf('execDetached(["wl-copy"') < 0
+            && exportSource.indexOf('property var _clipboardExportCommand: ["wl-copy", "--"]') >= 0,
+        "dedicated export service uses a managed stdin process"
     );
     assert(
         bubbleSource.indexOf("execDetached") < 0
@@ -2954,24 +3053,35 @@ section("Conversation export lifecycle wiring");
         "message components emit signals instead of launching clipboard processes"
     );
     assert(
-        streamingSource.indexOf("function copyMessageToClipboard") >= 0
-            && streamingSource.indexOf("messageCopySucceeded(clipboardIdentity)") >= 0
-            && streamingSource.indexOf("messageCopyFailed(clipboardIdentity") >= 0
+        exportSource.indexOf("function copyMessageToClipboard") >= 0
+            && exportSource.indexOf("messageCopySucceeded(clipboardIdentity)") >= 0
+            && exportSource.indexOf("messageCopyFailed(clipboardIdentity") >= 0
             && coordinatorSource.indexOf('messagesModel.setProperty(idx, "copyStatus", copyStatus)') >= 0,
-        "message clipboard lifecycle and feedback state remain service/coordinator-owned"
+        "message clipboard lifecycle and feedback state remain export-service/coordinator-owned"
     );
     assert(
-        streamingSource.indexOf('"-m", "0600", "/dev/stdin", filename') >= 0,
-        "file export preserves stdin transport and mode 0600"
+        exportSource.indexOf('mktemp \\"$1.tmp.XXXXXX\\"') >= 0
+            && exportSource.indexOf('chmod 0600 \\"/proc/$$/fd/3\\"') >= 0
+            && exportSource.indexOf("cat >&3") >= 0
+            && exportSource.indexOf('ln \\"$tmp\\" \\"$1\\"') >= 0
+            && exportSource.indexOf("_fileExportCommand.concat([filename])") >= 0,
+        "file export preserves stdin transport, mode 0600, and no-clobber creation"
     );
     assert(
-        streamingSource.indexOf("readonly property bool exportBusy") >= 0
-            && streamingSource.indexOf("Another clipboard or file operation is already in progress.") >= 0,
+        exportSource.indexOf("readonly property bool exportBusy") >= 0
+            && exportSource.indexOf("Another clipboard or file operation is already in progress.") >= 0
+            && streamingSource.indexOf("function exportToClipboard") < 0
+            && streamingSource.indexOf("clipboardWriter") < 0,
         "overlapping message and conversation operations are rejected with explicit feedback"
+    );
+    assert(
+        coordinatorSource.indexOf("streamingService._") < 0,
+        "coordinator does not reach through the streaming service's private boundary"
     );
     assert(
         coordinatorSource.indexOf("signal conversationExportSucceeded") >= 0
             && coordinatorSource.indexOf("signal conversationExportFailed") >= 0
+            && coordinatorSource.indexOf("ExportService {") >= 0
             && coordinatorSource.indexOf("onExportSucceeded:") >= 0
             && coordinatorSource.indexOf("onExportFailed:") >= 0,
         "coordinator exposes only completion-driven export facade signals"
@@ -2993,6 +3103,42 @@ section("Conversation export lifecycle wiring");
             && bubbleSource.indexOf("onClicked: root.copyRequested()") >= 0,
         "chat toasts are driven by confirmed success and failure signals"
     );
+})();
+
+// ═════════════════════════════════════════════════════════════════
+// Release/version maintenance contract
+// ═════════════════════════════════════════════════════════════════
+
+section("Release and runtime version contracts");
+
+(function() {
+    var plugin = JSON.parse(fs.readFileSync(
+        path.join(__dirname, "..", "plugin.json"), "utf8"));
+    var releaseConfig = JSON.parse(fs.readFileSync(
+        path.join(__dirname, "..", "release-please-config.json"), "utf8"));
+    var workflowSource = fs.readFileSync(
+        path.join(__dirname, "..", ".github/workflows/release-please.yml"), "utf8");
+    var testsWorkflowSource = fs.readFileSync(
+        path.join(__dirname, "..", ".github/workflows/tests.yml"), "utf8");
+    var mcpSource = fs.readFileSync(
+        path.join(__dirname, "..", "src/services/MCPService.qml"), "utf8");
+    var extraFiles = releaseConfig.packages["."]["extra-files"];
+
+    assertEqual(Version.current, plugin.version,
+        "MCP runtime version matches the plugin manifest");
+    assert(mcpSource.indexOf("version: Version.current") >= 0
+            && mcpSource.indexOf('version: "1.1.0"') < 0,
+        "MCP initialize derives its client version from the shared version module");
+    assert(extraFiles.indexOf("src/lib/Version.js") >= 0,
+        "release automation updates the runtime version module with the manifest");
+    assert(workflowSource.indexOf(
+        "googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071") >= 0
+            && workflowSource.indexOf("release-please-action@v4") < 0,
+        "release workflow pins the reviewed v4 action commit");
+    assert(testsWorkflowSource.indexOf("#shellcheck -c shellcheck") >= 0
+            && testsWorkflowSource.indexOf("#kdePackages.qtdeclarative -c qmllint") >= 0
+            && testsWorkflowSource.indexOf("--import=disable") >= 0,
+        "CI runs pinned ShellCheck and QML syntax/local-contract analysis");
 })();
 
 // ═════════════════════════════════════════════════════════════════

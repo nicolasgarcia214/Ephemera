@@ -124,6 +124,25 @@ ShellRoot {
         eventCheck.running = true;
     }
 
+    function beginRemoteProbe() {
+        phase = "remote-probe";
+        manager.ollamaUrl = "https://ollama.example.test";
+        manager.active = true;
+        if (!check(!manager.localProcessManaged,
+                "remote endpoint was treated as a managed local process")) return;
+        if (!check(manager.forceShutdownExternal() === false,
+                "remote endpoint allowed a local external-process kill")) return;
+        remoteCheckTimer.start();
+    }
+
+    function verifyRemoteProbeOnly() {
+        var script = "starts=$(grep -c '^START$' '" + eventsPath
+            + "'); remote=$(grep -c '^PING_REMOTE$' '" + eventsPath
+            + "'); test \"$starts\" -eq 2 -a \"$remote\" -ge 1";
+        eventCheck.command = ["sh", "-c", script];
+        eventCheck.running = true;
+    }
+
     Component.onCompleted: Qt.callLater(startChecks)
 
     Timer {
@@ -150,6 +169,13 @@ ShellRoot {
         interval: 50
         repeat: false
         onTriggered: root.pollLifecycle()
+    }
+
+    Timer {
+        id: remoteCheckTimer
+        interval: 250
+        repeat: false
+        onTriggered: root.verifyRemoteProbeOnly()
     }
 
     OllamaManager {
@@ -180,8 +206,10 @@ ShellRoot {
             }
             if (root.phase === "non-ollama")
                 root.beginOwnedProviderSwitch();
+            else if (root.phase === "external-provider-switch")
+                root.beginRemoteProbe();
             else
-                root.finish(true, "provider gates, owned shutdown, endpoint restart ordering, and external ownership are isolated");
+                root.finish(true, "provider gates, owned shutdown, endpoint restart ordering, external ownership, and remote probe-only behavior are isolated");
         }
     }
 }

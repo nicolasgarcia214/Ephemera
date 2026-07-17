@@ -32,6 +32,11 @@ Item {
     property bool isLocalProvider: false
     property string requestPayload: ""
     property bool _requestInfoExpanded: false
+    readonly property bool _customControlFocused:
+        streamingBubbleThinkingButton.activeFocus
+        || thinkingSectionButton.activeFocus
+        || streamingStatsThinkingButton.activeFocus
+        || persistedStatsButton.activeFocus
 
     readonly property bool isUser: role === "user"
     readonly property real bubbleMaxWidth: isUser ? Math.max(240, Math.floor(width * 0.82)) : width
@@ -42,8 +47,10 @@ Item {
 
     readonly property var themeColors: ({
         "codeBg": Theme.surfaceContainerHigh,
+        "tableHeaderBg": Theme.withAlpha(Theme.onSurface, 0.1),
         "blockquoteBg": Theme.withAlpha(Theme.surfaceContainerHighest, 0.5),
         "blockquoteBorder": Theme.outlineVariant,
+        "blockquoteText": Theme.surfaceVariantText,
         "inlineCodeBg": Theme.withAlpha(Theme.onSurface, 0.1)
     })
 
@@ -130,8 +137,10 @@ Item {
             if (root.status === "error") return Theme.withAlpha(Theme.error, 0.04);
             return hoverHandler.hovered ? Qt.lighter(root.assistantBubbleFill, 1.08) : root.assistantBubbleFill;
         }
-        border.color: status === "error" ? Theme.error : (root.isUser ? root.userBubbleBorder : root.assistantBubbleBorder)
-        border.width: 1
+        border.color: root._customControlFocused ? Theme.primary
+            : status === "error" ? Theme.error
+            : (root.isUser ? root.userBubbleBorder : root.assistantBubbleBorder)
+        border.width: root._customControlFocused ? 2 : 1
 
         implicitHeight: contentColumn.implicitHeight + Theme.spacingM * 2
         height: implicitHeight
@@ -153,11 +162,25 @@ Item {
 
         // Click anywhere on bubble to toggle thinking during streaming
         MouseArea {
+            id: streamingBubbleThinkingButton
             anchors.fill: parent
             enabled: root.status === "streaming" && root.thinking.length > 0
             visible: enabled
             cursorShape: Qt.PointingHandCursor
-            onClicked: root.thinkingExpanded = !root.thinkingExpanded
+            activeFocusOnTab: enabled
+            Accessible.role: Accessible.Button
+            Accessible.name: root.thinkingExpanded
+                ? "Collapse model thinking" : "Expand model thinking"
+            function activate() { root.thinkingExpanded = !root.thinkingExpanded; }
+            Accessible.onPressAction: activate()
+            onClicked: activate()
+            Keys.onPressed: event => {
+                if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter
+                        || event.key === Qt.Key_Space) {
+                    activate();
+                    event.accepted = true;
+                }
+            }
         }
 
         Column {
@@ -364,10 +387,24 @@ Item {
                 spacing: Theme.spacingXS
 
                 MouseArea {
+                    id: thinkingSectionButton
                     width: parent.width
                     height: thinkingHeader.implicitHeight
                     cursorShape: Qt.PointingHandCursor
-                    onClicked: root.thinkingExpanded = !root.thinkingExpanded
+                    activeFocusOnTab: true
+                    Accessible.role: Accessible.Button
+                    Accessible.name: root.thinkingExpanded
+                        ? "Collapse model thinking" : "Expand model thinking"
+                    function activate() { root.thinkingExpanded = !root.thinkingExpanded; }
+                    Accessible.onPressAction: activate()
+                    onClicked: activate()
+                    Keys.onPressed: event => {
+                        if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter
+                                || event.key === Qt.Key_Space) {
+                            activate();
+                            event.accepted = true;
+                        }
+                    }
 
                     Row {
                         id: thinkingHeader
@@ -684,11 +721,23 @@ Item {
                 }
 
                 MouseArea {
+                    id: streamingStatsThinkingButton
                     anchors.fill: parent
+                    enabled: root.thinking.length > 0
                     cursorShape: root.thinking.length > 0 ? Qt.PointingHandCursor : Qt.ArrowCursor
-                    onClicked: {
-                        if (root.thinking.length > 0)
-                            root.thinkingExpanded = !root.thinkingExpanded;
+                    activeFocusOnTab: enabled
+                    Accessible.role: Accessible.Button
+                    Accessible.name: root.thinkingExpanded
+                        ? "Collapse model thinking" : "Expand model thinking"
+                    function activate() { root.thinkingExpanded = !root.thinkingExpanded; }
+                    Accessible.onPressAction: activate()
+                    onClicked: activate()
+                    Keys.onPressed: event => {
+                        if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter
+                                || event.key === Qt.Key_Space) {
+                            activate();
+                            event.accepted = true;
+                        }
                     }
                 }
             }
@@ -729,9 +778,23 @@ Item {
                 }
 
                 MouseArea {
+                    id: persistedStatsButton
                     anchors.fill: parent
                     cursorShape: Qt.PointingHandCursor
-                    onClicked: parent._statsVisible = !parent._statsVisible
+                    activeFocusOnTab: true
+                    Accessible.role: Accessible.Button
+                    Accessible.name: parent._statsVisible
+                        ? "Hide response statistics" : "Show response statistics"
+                    function activate() { parent._statsVisible = !parent._statsVisible; }
+                    Accessible.onPressAction: activate()
+                    onClicked: activate()
+                    Keys.onPressed: event => {
+                        if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter
+                                || event.key === Qt.Key_Space) {
+                            activate();
+                            event.accepted = true;
+                        }
+                    }
                 }
             }
 

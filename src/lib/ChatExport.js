@@ -2,6 +2,9 @@
 
 // Pure functions for exporting Ephemera chat conversations.
 
+var _lastFilenameTimestamp = "";
+var _filenameSequence = 0;
+
 /**
  * Build a markdown representation of a conversation.
  *
@@ -28,6 +31,13 @@ function buildMarkdown(messages) {
  * @returns {string} Full path like "/home/user/ephemera-chat-2024-01-15T10-30-00.md".
  */
 function generateFilename(homeDir) {
-    var timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-    return (homeDir || "") + "/ephemera-chat-" + timestamp + ".md";
+    var timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    if (timestamp === _lastFilenameTimestamp)
+        _filenameSequence++;
+    else {
+        _lastFilenameTimestamp = timestamp;
+        _filenameSequence = 0;
+    }
+    var suffix = _filenameSequence > 0 ? "-" + _filenameSequence : "";
+    return (homeDir || "") + "/ephemera-chat-" + timestamp + suffix + ".md";
 }

@@ -7,6 +7,34 @@ SettingsCard {
     id: root
 
     required property var aiService
+    property bool _systemPromptSavePending: false
+    property string _pendingSystemPromptText: ""
+
+    function _queueSystemPromptSave(text) {
+        aiService.systemPrompt = text;
+        _pendingSystemPromptText = text;
+        _systemPromptSavePending = true;
+        _systemPromptSaveTimer.restart();
+    }
+
+    function flushPendingSettings() {
+        if (!_systemPromptSavePending)
+            return;
+        _systemPromptSavePending = false;
+        _systemPromptSaveTimer.stop();
+        aiService.saveSettingValue("systemPrompt", _pendingSystemPromptText);
+    }
+
+    function _saveSystemPromptImmediately(text) {
+        systemPromptArea.text = text;
+        _pendingSystemPromptText = text;
+        _systemPromptSavePending = false;
+        _systemPromptSaveTimer.stop();
+        aiService.systemPrompt = text;
+        aiService.saveSettingValue("systemPrompt", text);
+    }
+
+    Component.onDestruction: flushPendingSettings()
 
     Row {
         width: parent.width
@@ -60,9 +88,7 @@ SettingsCard {
             currentValue: _presetNameFor(aiService.systemPrompt)
             onValueChanged: value => {
                 if (_presets.hasOwnProperty(value)) {
-                    systemPromptArea.text = _presets[value];
-                    aiService.systemPrompt = _presets[value];
-                    aiService.saveSettingValue("systemPrompt", _presets[value]);
+                    root._saveSystemPromptImmediately(_presets[value]);
                 }
                 if (value === "(custom)")
                     systemPromptArea.forceActiveFocus();
@@ -98,14 +124,19 @@ SettingsCard {
                     padding: 0
 
                     onTextChanged: {
-                        aiService.systemPrompt = text;
-                        _systemPromptSaveTimer.restart();
+                        root._queueSystemPromptSave(text);
                     }
 
                     Timer {
                         id: _systemPromptSaveTimer
                         interval: 500
-                        onTriggered: aiService.saveSettingValue("systemPrompt", systemPromptArea.text)
+                        onTriggered: {
+                            if (!root._systemPromptSavePending)
+                                return;
+                            root._systemPromptSavePending = false;
+                            aiService.saveSettingValue(
+                                "systemPrompt", root._pendingSystemPromptText);
+                        }
                     }
                 }
             }

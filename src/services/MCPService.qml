@@ -3,6 +3,7 @@ import Quickshell
 import Quickshell.Io
 import "../lib/Mcp.js" as Mcp
 import "../lib/McpSchema.js" as McpSchema
+import "../lib/Version.js" as Version
 import "../lib/Providers.js" as Providers
 
 Item {
@@ -670,7 +671,7 @@ Item {
             params: {
                 protocolVersion: _preferredProtocolVersion,
                 capabilities: {},
-                clientInfo: { name: "ephemera", version: "1.1.0" }
+                clientInfo: { name: "ephemera", version: Version.current }
             }
         });
     }

@@ -25,10 +25,6 @@ RowLayout {
     spacing: Theme.spacingS
     clip: true
 
-    function showToast(message) {
-        // Delegated up to parent via signal — see EphemeraChat
-    }
-
     StyledText {
         text: "Ephemera"
         font.pixelSize: Theme.fontSizeLarge
@@ -48,8 +44,11 @@ RowLayout {
                 return Theme.withAlpha(Theme.primary, 0.3);
             return Theme.surfaceVariant;
         }
-        border.color: (aiService.missingApiKey || aiService.lastRequestFailed) ? Theme.withAlpha(Theme.error, 0.4) : Theme.withAlpha(Theme.outline, 0)
-        border.width: (aiService.missingApiKey || aiService.lastRequestFailed) ? 1 : 0
+        border.color: providerPillButton.activeFocus ? Theme.primary
+            : (aiService.missingApiKey || aiService.lastRequestFailed)
+                ? Theme.withAlpha(Theme.error, 0.4) : Theme.withAlpha(Theme.outline, 0)
+        border.width: providerPillButton.activeFocus ? 2
+            : (aiService.missingApiKey || aiService.lastRequestFailed) ? 1 : 0
         height: Theme.fontSizeSmall * 1.6
         Layout.alignment: Qt.AlignVCenter
 
@@ -100,9 +99,22 @@ RowLayout {
         }
 
         MouseArea {
+            id: providerPillButton
             anchors.fill: parent
             cursorShape: Qt.PointingHandCursor
-            onClicked: modelSelectorPopup.open()
+            activeFocusOnTab: true
+            Accessible.role: Accessible.Button
+            Accessible.name: "Choose provider and model"
+            function activate() { modelSelectorPopup.open(); }
+            Accessible.onPressAction: activate()
+            onClicked: activate()
+            Keys.onPressed: event => {
+                if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter
+                        || event.key === Qt.Key_Space) {
+                    activate();
+                    event.accepted = true;
+                }
+            }
         }
 
         ToolTip {

@@ -38,6 +38,10 @@ for argument do
             endpoint="version"
             endpoint_url=$argument
             ;;
+        https://ollama.example.test/api/version)
+            endpoint="version"
+            endpoint_url=$argument
+            ;;
         http://localhost:11434/api/tags|http://127.0.0.*:11434/api/tags)
             endpoint="tags"
             endpoint_url=$argument
@@ -153,6 +157,10 @@ if [ -n "${EPHEMERA_OLLAMA_LIFECYCLE_DIR:-}" ]; then
             ;;
         http://127.0.0.1:11434/api/version)
             printf 'PING_EXTERNAL\n' >> "$EPHEMERA_OLLAMA_LIFECYCLE_DIR/events"
+            ;;
+        https://ollama.example.test/api/version)
+            printf 'PING_REMOTE\n' >> "$EPHEMERA_OLLAMA_LIFECYCLE_DIR/events"
+            exit 7
             ;;
     esac
 fi

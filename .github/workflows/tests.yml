@@ -9,6 +9,16 @@ permissions:
   contents: read
 
 jobs:
+  static-analysis:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: cachix/install-nix-action@a49548c11d9846ad46ecc0115273879b045f001c # v31.10.7
+      - name: ShellCheck test runners
+        run: nix shell github:NixOS/nixpkgs/ffbc9f8cbaacfb331b6017d5a5abb21a492c9a38#shellcheck -c shellcheck tests/run_qml_tests.sh tests/run_panel_qml_test.sh
+      - name: Lint QML syntax and local contracts
+        run: nix shell github:NixOS/nixpkgs/ffbc9f8cbaacfb331b6017d5a5abb21a492c9a38#kdePackages.qtdeclarative -c qmllint --import=disable --unresolved-type=disable --missing-type=disable --unqualified=disable EphemeraDaemon.qml src/components/*.qml src/services/*.qml
+
   unit:
     runs-on: ubuntu-latest
     steps:

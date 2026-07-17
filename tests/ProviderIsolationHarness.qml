@@ -141,10 +141,10 @@ ShellRoot {
 
     function startZeroOutputCheck() {
         phase = "zero-output";
-        var finalizedMessageId = streaming._lastFinalizedStreamId;
+        var finalizedMessageId = streaming.lastFinalizedStreamId;
         streaming.beginStream("zero-output", 0, []);
         if (!check(finalizedMessageId === "new-cloud"
-                && streaming._lastFinalizedStreamId === finalizedMessageId,
+                && streaming.lastFinalizedStreamId === finalizedMessageId,
                 "new stream discarded delayed finalized-message attribution")) return;
         var context = streaming.activeStreamContext();
         var launched = streaming.launchCurl({
@@ -212,8 +212,9 @@ ShellRoot {
 
         onStreamError: (streamId, message) => {
             if (root.phase === "zero-output" && streamId === "zero-output") {
-                if (streaming._streamContent.indexOf("FRESH_CLOUD_OUTPUT") >= 0
-                        || streaming._streamContent.indexOf("STALE_CLOUD_OUTPUT") >= 0) {
+                var streamResult = streaming.currentStreamResult();
+                if (streamResult.content.indexOf("FRESH_CLOUD_OUTPUT") >= 0
+                        || streamResult.content.indexOf("STALE_CLOUD_OUTPUT") >= 0) {
                     root.finish(false, "zero-output process replayed a previous response");
                     return;
                 }
@@ -236,15 +237,15 @@ ShellRoot {
             root.finalizedCount++;
             if (root.phase === "provider-isolation") {
                 if (streamId !== "new-cloud" || root.finalizedCount !== 1
-                        || streaming._streamContent !== "FRESH_CLOUD_OUTPUT"
-                        || streaming._streamContent.indexOf("STALE_CLOUD_OUTPUT") >= 0) {
+                        || streaming.currentStreamResult().content !== "FRESH_CLOUD_OUTPUT"
+                        || streaming.currentStreamResult().content.indexOf("STALE_CLOUD_OUTPUT") >= 0) {
                     root.finish(false, "stale process output mutated replacement stream");
                     return;
                 }
                 finalizedStatusTimer.restart();
             } else if (root.phase === "recovery") {
                 if (streamId !== "recovered-cloud" || root.finalizedCount !== 2
-                        || streaming._streamContent !== "RECOVERED_CLOUD_OUTPUT") {
+                        || streaming.currentStreamResult().content !== "RECOVERED_CLOUD_OUTPUT") {
                     root.finish(false, "stream did not recover after failed Process start");
                     return;
                 }

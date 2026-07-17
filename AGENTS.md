@@ -14,7 +14,7 @@ Live panel geometry test: `tests/run_panel_qml_test.sh` (requires Quickshell and
 
 ## Architecture
 
-EphemeraService.qml is the **coordinator** that owns message state (`messagesModel`, `messageIndexMap`, `variantStore`) and orchestrates child services (KeyringService, StreamingService, OllamaManager, MCPService). Child services communicate via signals; the coordinator applies their outputs to the shared message model. Narrow facade properties expose child state so UI binds to `aiService.*` without receiving executable service objects.
+EphemeraService.qml is the **coordinator** that owns message state (`messagesModel`, `messageIndexMap`, `variantStore`) and orchestrates child services (KeyringService, StreamingService, ExportService, OllamaManager, MCPService). Child services communicate via signals; the coordinator applies their outputs to the shared message model. Narrow facade properties expose child state so UI binds to `aiService.*` without receiving executable service objects.
 
 ## Gotchas & Landmines
 

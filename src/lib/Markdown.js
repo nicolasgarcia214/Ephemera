@@ -32,8 +32,10 @@ function renderCacheKey(text, colors) {
         text || "",
         String(c.codeBg || ""),
         String(c.inlineCodeBg || ""),
+        String(c.tableHeaderBg || ""),
         String(c.blockquoteBg || ""),
-        String(c.blockquoteBorder || "")
+        String(c.blockquoteBorder || ""),
+        String(c.blockquoteText || "")
     ]);
 }
 
@@ -59,18 +61,24 @@ function renderCacheKey(text, colors) {
  * @param {Object} [colors] - Theme colors for styled elements.
  * @param {string} colors.codeBg - Background color for fenced code blocks.
  * @param {string} colors.inlineCodeBg - Background color for inline code spans.
+ * @param {string} colors.tableHeaderBg - Background color for table headers.
  * @param {string} colors.blockquoteBg - Background color for blockquotes.
  * @param {string} colors.blockquoteBorder - Left border color for blockquotes.
+ * @param {string} colors.blockquoteText - Text color for blockquotes.
  * @returns {string} HTML string safe for QML Text.RichText rendering.
  */
 function markdownToHtml(text, colors) {
     if (!text) return "";
 
-    var c = colors || {
-        codeBg: "#20FFFFFF",
-        inlineCodeBg: "#30FFFFFF",
-        blockquoteBg: "transparent",
-        blockquoteBorder: "#808080"
+    var supplied = colors || {};
+    var c = {
+        codeBg: supplied.codeBg || "#20FFFFFF",
+        inlineCodeBg: supplied.inlineCodeBg || "#30FFFFFF",
+        tableHeaderBg: supplied.tableHeaderBg
+            || supplied.inlineCodeBg || "#30FFFFFF",
+        blockquoteBg: supplied.blockquoteBg || "transparent",
+        blockquoteBorder: supplied.blockquoteBorder || "#808080",
+        blockquoteText: supplied.blockquoteText || "#a0a0a0"
     };
 
     var codeBlocks = [];
@@ -125,7 +133,7 @@ function markdownToHtml(text, colors) {
 
         tableHtml += '<tr>';
         for (var h = 0; h < headers.length; h++) {
-            tableHtml += '<th style="background-color: #30FFFFFF; padding: 5px;">' + escapeHtml(headers[h]) + '</th>';
+            tableHtml += '<th style="background-color: ' + c.tableHeaderBg + '; padding: 5px;">' + escapeHtml(headers[h]) + '</th>';
         }
         tableHtml += '</tr>';
 
@@ -217,7 +225,7 @@ function markdownToHtml(text, colors) {
                         .replace(/<bq_line>/g, '')
                         .replace(/<\/bq_line>/g, '')
                         .trim();
-        var block = '<blockquote style="background-color: ' + c.blockquoteBg + '; border-left: 4px solid ' + c.blockquoteBorder + '; padding: 4px; margin: 8px 0;"><font color="#a0a0a0"><i>' + inner + '</i></font></blockquote>';
+        var block = '<blockquote style="background-color: ' + c.blockquoteBg + '; border-left: 4px solid ' + c.blockquoteBorder + '; padding: 4px; margin: 8px 0;"><font color="' + c.blockquoteText + '"><i>' + inner + '</i></font></blockquote>';
         protectedBlocks.push(block);
         return '\x00PROTECTEDBLOCK' + (protectedIndex++) + '\x00\n';
     });

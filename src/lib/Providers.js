@@ -45,6 +45,24 @@ function validateUrl(url) {
  * @returns {{ valid: boolean, error: string }} error is safe to show to users.
  */
 function validateCustomProviderUrl(url) {
+    return _validateSecureProviderUrl(url, "Custom provider");
+}
+
+/**
+ * Validate an Ollama endpoint.
+ *
+ * Remote Ollama endpoints must use HTTPS. Plaintext HTTP is limited to exact
+ * localhost or dotted-decimal 127.0.0.0/8 endpoints, matching the custom
+ * provider transport policy.
+ *
+ * @param {string} url - Ollama base URL to validate.
+ * @returns {{ valid: boolean, error: string }} error is safe to show to users.
+ */
+function validateOllamaUrl(url) {
+    return _validateSecureProviderUrl(url, "Ollama");
+}
+
+function _validateSecureProviderUrl(url, displayName) {
     var baseValidation = validateUrl(url);
     if (!baseValidation.valid)
         return baseValidation;
@@ -52,14 +70,14 @@ function validateCustomProviderUrl(url) {
     var u = String(url || "").trim();
     var match = u.match(/^(https?):\/\/([^\/?#]+)(?:[\/?#]|$)/i);
     if (!match)
-        return { valid: false, error: "Invalid custom provider URL." };
+        return { valid: false, error: "Invalid " + displayName.toLowerCase() + " URL." };
 
     var scheme = match[1].toLowerCase();
     var authority = match[2];
     if (authority.indexOf("@") >= 0) {
         return {
             valid: false,
-            error: "Custom provider URLs must not include credentials."
+            error: displayName + " URLs must not include credentials."
         };
     }
 
@@ -67,27 +85,41 @@ function validateCustomProviderUrl(url) {
     var portSeparator = authority.lastIndexOf(":");
     if (portSeparator >= 0) {
         if (authority.indexOf(":") !== portSeparator)
-            return { valid: false, error: "Invalid hostname in custom provider URL." };
+            return { valid: false, error: "Invalid hostname in " + displayName.toLowerCase() + " URL." };
         host = authority.slice(0, portSeparator);
         var port = authority.slice(portSeparator + 1);
         if (!/^\d+$/.test(port) || Number(port) > 65535) {
-            return { valid: false, error: "Invalid port in custom provider URL." };
+            return { valid: false, error: "Invalid port in " + displayName.toLowerCase() + " URL." };
         }
     }
 
     var ipv4 = _parseIpv4Address(host);
     if (!ipv4 && !_isValidHostname(host))
-        return { valid: false, error: "Invalid hostname in custom provider URL." };
+        return { valid: false, error: "Invalid hostname in " + displayName.toLowerCase() + " URL." };
 
     if (scheme === "http"
             && host.toLowerCase() !== "localhost"
             && !(ipv4 && ipv4[0] === 127)) {
         return {
             valid: false,
-            error: "Custom provider HTTP is allowed only for localhost or 127.0.0.0/8; use HTTPS for remote endpoints."
+            error: displayName + " HTTP is allowed only for localhost or 127.0.0.0/8; use HTTPS for remote endpoints."
         };
     }
     return { valid: true, error: "" };
+}
+
+/**
+ * Return whether Ephemera can safely manage the local process behind an
+ * Ollama endpoint. `ollama serve` uses only these default local identities;
+ * every other valid endpoint is probe-only.
+ *
+ * @param {string} url - Validated Ollama base URL.
+ * @returns {boolean} True only for the default local HTTP endpoints.
+ */
+function isManagedLocalOllamaUrl(url) {
+    var normalized = normalizeBaseUrl(url);
+    return normalized === "http://localhost:11434"
+        || normalized === "http://127.0.0.1:11434";
 }
 
 function _parseIpv4Address(host) {
@@ -303,7 +335,11 @@ function buildRequest(provider, payload, apiKey) {
 }
 
 function ollamaRequest(payload) {
-    var base = normalizeBaseUrl(payload.baseUrl || "http://localhost:11434");
+    var endpoint = payload.baseUrl || "http://localhost:11434";
+    var endpointValidation = validateOllamaUrl(endpoint);
+    if (!endpointValidation.valid)
+        return { error: endpointValidation.error || "Invalid Ollama URL." };
+    var base = normalizeBaseUrl(endpoint);
     var hasTools = payload.tools && payload.tools.length > 0;
     var messages = Array.isArray(payload.messages) ? payload.messages : [];
     var hasNativeToolHistory = false;
@@ -645,9 +681,9 @@ var registry = {
         needsKey: true,
         hasNativeThinking: true,
         tempMin: 0.0, tempMax: 2.0, tempDefault: 1.0,
-        modelPlaceholder: "gemini-2.5-flash",
+        modelPlaceholder: "gemini-3.5-flash",
         models: [
-            "gemini-3.1-pro-preview", "gemini-3-flash-preview",
+            "gemini-3.5-flash", "gemini-3.1-pro-preview",
             "gemini-3.1-flash-lite", "gemini-2.5-pro",
             "gemini-2.5-flash", "gemini-2.5-flash-lite"
         ]

@@ -8,6 +8,24 @@ SettingsCard {
 
     required property var aiService
 
+    function hasPendingOperation() {
+        for (var i = 0; i < providerRepeater.count; i++) {
+            var item = providerRepeater.itemAt(i);
+            if (item && item._operationPending)
+                return true;
+        }
+        return false;
+    }
+
+    function _delegateForProvider(provider) {
+        for (var i = 0; i < providerRepeater.count; i++) {
+            var item = providerRepeater.itemAt(i);
+            if (item && item.modelData.provider === provider)
+                return item;
+        }
+        return null;
+    }
+
     Row {
         width: parent.width
         spacing: Theme.spacingM
@@ -43,6 +61,7 @@ SettingsCard {
         spacing: Theme.spacingS
 
         Repeater {
+            id: providerRepeater
             // Show key status for providers that need an API key
             model: {
                 var providers = Providers.getProviderNames();
@@ -63,6 +82,81 @@ SettingsCard {
 
                 property bool _editing: false
                 property bool _hasKeyring: aiService.apiKeySource(modelData.provider) === "keyring"
+                property bool _operationPending: false
+                property string _pendingOperationId: ""
+                property string _pendingOperationType: ""
+                property string _operationError: ""
+                readonly property string _pendingInputText: keyInput.text
+
+                function _setInputForTest(value) {
+                    _editing = true;
+                    keyInput.text = value;
+                }
+
+                function _submitStore() {
+                    var key = keyInput.text.trim();
+                    if (!key || _operationPending)
+                        return false;
+                    _operationError = "";
+                    var operationId = aiService.storeKeyringKey(modelData.provider, key);
+                    if (!operationId) {
+                        _operationError = "Could not queue the API key for keyring storage.";
+                        return false;
+                    }
+                    _pendingOperationId = operationId;
+                    _pendingOperationType = "store";
+                    _operationPending = true;
+                    return true;
+                }
+
+                function _clearStoredKey() {
+                    if (_operationPending)
+                        return false;
+                    _operationError = "";
+                    var operationId = aiService.clearKeyringKey(modelData.provider);
+                    if (!operationId) {
+                        _operationError = "Could not queue the API key for keyring removal.";
+                        return false;
+                    }
+                    _pendingOperationId = operationId;
+                    _pendingOperationType = "clear";
+                    _operationPending = true;
+                    return true;
+                }
+
+                Connections {
+                    target: root.aiService
+
+                    function onKeyringOperationSucceeded(operationId, operation, provider) {
+                        if (!delegate._operationPending
+                                || operationId !== delegate._pendingOperationId
+                                || operation !== delegate._pendingOperationType
+                                || provider !== delegate.modelData.provider)
+                            return;
+                        delegate._operationPending = false;
+                        delegate._pendingOperationId = "";
+                        delegate._pendingOperationType = "";
+                        delegate._operationError = "";
+                        if (operation === "store") {
+                            keyInput.text = "";
+                            delegate._editing = false;
+                        }
+                    }
+
+                    function onKeyringOperationFailed(operationId, operation, provider, message) {
+                        if (!delegate._operationPending
+                                || operationId !== delegate._pendingOperationId
+                                || operation !== delegate._pendingOperationType
+                                || provider !== delegate.modelData.provider)
+                            return;
+                        delegate._operationPending = false;
+                        delegate._pendingOperationId = "";
+                        delegate._pendingOperationType = "";
+                        delegate._operationError = message;
+                        if (operation === "store")
+                            delegate._editing = true;
+                    }
+                }
 
                 Row {
                     width: parent.width
@@ -121,12 +215,14 @@ SettingsCard {
 
                         DankButton {
                             text: "Replace"
+                            enabled: !delegate._operationPending
                             onClicked: delegate._editing = true
                         }
 
                         DankButton {
-                            text: "Clear"
-                            onClicked: aiService.clearKeyringKey(modelData.provider)
+                            text: delegate._operationPending ? "Working…" : "Clear"
+                            enabled: !delegate._operationPending
+                            onClicked: delegate._clearStoredKey()
                         }
                     }
 
@@ -142,25 +238,34 @@ SettingsCard {
                                    - (cancelBtn.visible ? cancelBtn.width + Theme.spacingS : 0)
                             placeholderText: delegate._editing ? "Paste new API key" : "Paste API key"
                             echoMode: TextInput.Password
+                            enabled: !delegate._operationPending
                         }
 
                         DankButton {
                             id: saveBtn
-                            text: "Save"
+                            text: delegate._operationPending ? "Saving…" : "Save"
                             enabled: keyInput.text.trim().length > 0
-                            onClicked: {
-                                aiService.storeKeyringKey(modelData.provider, keyInput.text.trim());
-                                keyInput.text = "";
-                                delegate._editing = false;
-                            }
+                                && !delegate._operationPending
+                            onClicked: delegate._submitStore()
                         }
 
                         DankButton {
                             id: cancelBtn
                             text: "Cancel"
                             visible: delegate._editing
+                            enabled: !delegate._operationPending
                             onClicked: { delegate._editing = false; keyInput.text = ""; }
                         }
+                    }
+
+                    StyledText {
+                        width: parent.width
+                        visible: delegate._operationError.length > 0
+                        text: delegate._operationError
+                        textFormat: Text.PlainText
+                        wrapMode: Text.WordWrap
+                        font.pixelSize: Theme.fontSizeSmall
+                        color: Theme.error
                     }
                 }
             }

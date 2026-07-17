@@ -9,6 +9,8 @@ Item {
     property string ollamaUrl: "http://localhost:11434"
     property bool active: true
     property bool isStreaming: false
+    readonly property bool localProcessManaged:
+        Providers.isManagedLocalOllamaUrl(ollamaUrl)
 
     // --- Ollama state (exposed to parent) ---
     property ListModel availableModels: ListModel {}
@@ -86,6 +88,8 @@ Item {
     }
 
     function forceShutdownExternal() {
+        if (!localProcessManaged)
+            return false;
         _shuttingDown = true;
         _restartAfterExit = false;
         _invalidateProbes();
@@ -97,6 +101,7 @@ Item {
         ollamaExternallyManaged = false;
         ollamaWeStarted = false;
         ollamaStartPending = false;
+        return true;
     }
 
     function scheduleIdleShutdown() {
@@ -161,7 +166,7 @@ Item {
     }
 
     function _isUrlSafe() {
-        return Providers.validateUrl(ollamaUrl).valid;
+        return Providers.validateOllamaUrl(ollamaUrl).valid;
     }
 
     // --- Internal ---
@@ -379,7 +384,7 @@ Item {
             ollamaExternallyManaged = false;
         }
 
-        if (!ollamaWeStarted && !ollamaStartPending && !_terminationPending
+        if (localProcessManaged && !ollamaWeStarted && !ollamaStartPending && !_terminationPending
                 && ollamaRetries === 0) {
             ollamaStartPending = true;
             ollamaProcess.running = true;

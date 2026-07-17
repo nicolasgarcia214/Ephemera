@@ -69,8 +69,12 @@ Item {
 
     onVisibleChanged: {
         if (!visible) {
-            showSettings = false;
-            _settingsClosing = false;
+            var pendingKeyringOperation = settingsPanelLoader.item
+                && settingsPanelLoader.item.hasPendingKeyringOperation();
+            if (!pendingKeyringOperation) {
+                showSettings = false;
+                _settingsClosing = false;
+            }
             if (aiService) aiService.scheduleIdleShutdown();
         } else {
             if (aiService) aiService.ensureOllamaReady();
@@ -94,10 +98,19 @@ Item {
 
     function closeSettings() {
         if (_settingsClosing) return;
+        if (settingsPanelLoader.item
+                && settingsPanelLoader.item.hasPendingKeyringOperation()) {
+            chatToast.show("Wait for the keyring operation to finish before closing settings.");
+            return;
+        }
         _settingsClosing = true;
         if (settingsPanelLoader.item)
             settingsPanelLoader.item.opacity = 0;
         settingsCloseTimer.start();
+    }
+
+    function _settingsPanelForTest() {
+        return settingsPanelLoader.item;
     }
 
     function _handleClearRequest() {
@@ -331,6 +344,9 @@ Item {
                 height: 32
                 radius: 16
                 color: Theme.withAlpha(Theme.primary, 0.85)
+                border.color: scrollToBottomButton.activeFocus
+                    ? Theme.onPrimary : Theme.withAlpha(Theme.onPrimary, 0)
+                border.width: scrollToBottomButton.activeFocus ? 2 : 0
                 visible: opacity > 0
                 opacity: list.stickToBottom ? 0.0 : 1.0
                 scale: list.stickToBottom ? 0.8 : 1.0
@@ -363,9 +379,22 @@ Item {
                 }
 
                 MouseArea {
+                    id: scrollToBottomButton
                     anchors.fill: parent
                     cursorShape: Qt.PointingHandCursor
-                    onClicked: list.scrollToBottom()
+                    activeFocusOnTab: true
+                    Accessible.role: Accessible.Button
+                    Accessible.name: "Scroll to new messages"
+                    function activate() { list.scrollToBottom(); }
+                    Accessible.onPressAction: activate()
+                    onClicked: activate()
+                    Keys.onPressed: event => {
+                        if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter
+                                || event.key === Qt.Key_Space) {
+                            activate();
+                            event.accepted = true;
+                        }
+                    }
                 }
             }
 

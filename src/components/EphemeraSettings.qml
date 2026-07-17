@@ -10,11 +10,20 @@ Item {
 
     required property var aiService
 
+    function hasPendingKeyringOperation() {
+        return apiKeysCard.hasPendingOperation();
+    }
+
+    function _apiKeyDelegateForTest(provider) {
+        return apiKeysCard._delegateForProvider(provider);
+    }
+
     visible: isVisible
 
     onCloseRequested: {
         if (providerCard.validatePendingFields)
             providerCard.validatePendingFields();
+        modelParametersCard.flushPendingSettings();
     }
 
     Rectangle {
@@ -70,10 +79,12 @@ Item {
                     }
 
                     ModelParametersCard {
+                        id: modelParametersCard
                         aiService: root.aiService
                     }
 
                     ApiKeysCard {
+                        id: apiKeysCard
                         aiService: root.aiService
                     }
 

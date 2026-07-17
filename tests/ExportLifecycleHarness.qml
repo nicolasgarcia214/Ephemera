@@ -66,6 +66,9 @@ ShellRoot {
 
     function startFileFailure() {
         phase = "file-nonzero";
+        streaming._fileExportCommand = [
+            "sh", "-c", "cat >/dev/null; exit 24", "ephemera-export"
+        ];
         if (!streaming.exportToFile("FILE_FAIL", runtimeDir,
                                     runtimeDir + "/export-fail.md"))
             finish(false, "file nonzero fixture was rejected");
@@ -81,7 +84,11 @@ ShellRoot {
 
     function startOverlapCheck() {
         phase = "overlap";
-        streaming._fileExportCommand = ["install"];
+        streaming._fileExportCommand = [
+            "sh", "-c",
+            "umask 077; tmp=$(mktemp \"$1.tmp.XXXXXX\") || exit; trap 'rm -f -- \"$tmp\"' 0 1 2 15; exec 3> \"$tmp\" || exit; chmod 0600 \"/proc/$$/fd/3\" || exit; cat >&3 || exit; exec 3>&-; ln \"$tmp\" \"$1\" || exit; rm -f -- \"$tmp\" || exit; trap - 0 1 2 15",
+            "ephemera-export"
+        ];
         if (!streaming.exportToClipboard("CLIPBOARD_SLOW")) {
             finish(false, "overlap fixture could not start its first export");
             return;
@@ -89,6 +96,18 @@ ShellRoot {
         if (streaming.exportToFile("FILE_SUCCESS", runtimeDir,
                                    runtimeDir + "/export-overlap.md"))
             finish(false, "overlapping file export was accepted");
+    }
+
+    function startFileCollision() {
+        phase = "file-collision";
+        if (!streaming.exportToFile("REPLACEMENT", runtimeDir,
+                                    runtimeDir + "/export-success.md"))
+            finish(false, "file collision fixture was rejected before launch");
+    }
+
+    function startFifoCollision() {
+        phase = "file-fifo-collision";
+        fifoCreator.running = true;
     }
 
     function startMessageSuccess() {
@@ -141,11 +160,39 @@ ShellRoot {
         onExited: exitCode => {
             if (!root.check(exitCode === 0,
                             "file export did not preserve stdin content and mode 0600")) return;
-            Qt.callLater(root.startFileFailure);
+            Qt.callLater(root.startFileCollision);
         }
     }
 
-    StreamingService {
+    Process {
+        id: collisionVerifier
+        running: false
+        command: [
+            "sh", "-c",
+            "test \"$(cat \"$1\")\" = FILE_SUCCESS",
+            "_", root.runtimeDir + "/export-success.md"
+        ]
+        onExited: exitCode => {
+            if (!root.check(exitCode === 0,
+                            "file collision overwrote the existing export")) return;
+            Qt.callLater(root.startFifoCollision);
+        }
+    }
+
+    Process {
+        id: fifoCreator
+        running: false
+        command: ["mkfifo", root.runtimeDir + "/export-fifo.md"]
+        onExited: exitCode => {
+            if (!root.check(exitCode === 0,
+                            "could not create FIFO collision fixture")) return;
+            if (!streaming.exportToFile("REPLACEMENT", root.runtimeDir,
+                                        root.runtimeDir + "/export-fifo.md"))
+                root.finish(false, "FIFO collision fixture was rejected before launch");
+        }
+    }
+
+    ExportService {
         id: streaming
 
         onExportSucceeded: (exportId, exportKind, target) => {
@@ -189,6 +236,14 @@ ShellRoot {
                                 && message.indexOf("exit code 24") >= 0,
                                 "file nonzero exit was not reported truthfully")) return;
                 Qt.callLater(root.startFileStartFailure);
+            } else if (root.phase === "file-collision") {
+                if (!root.check(exportKind === "file" && message.indexOf("exit code") >= 0,
+                                "existing export collision was not reported")) return;
+                collisionVerifier.running = true;
+            } else if (root.phase === "file-fifo-collision") {
+                if (!root.check(exportKind === "file" && message.indexOf("exit code") >= 0,
+                                "FIFO collision was not rejected promptly")) return;
+                Qt.callLater(root.startFileFailure);
             } else if (root.phase === "file-start-failure") {
                 if (!root.check(exportKind === "file"
                                 && message.indexOf("Could not start file export") >= 0,

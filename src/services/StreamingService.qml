@@ -29,6 +29,9 @@ Item {
     property int _fetchGeneration: -1
     property string _fetchOutput: ""
     property bool _processActive: false
+    property bool _fetchOutputFinished: false
+    property bool _fetchExitObserved: false
+    property int _fetchExitCode: -1
     property real streamStartTime: 0
     property int streamTokenCount: 0
     property int _apiOutputTokens: 0
@@ -72,6 +75,8 @@ Item {
     readonly property string pendingToolDescription: _pendingApprovalToolDescription
     readonly property string pendingToolArgumentsText: _pendingApprovalToolArgumentsText
     readonly property bool transportBusy: _processActive
+    readonly property int apiOutputTokens: _apiOutputTokens
+    readonly property string lastFinalizedStreamId: _lastFinalizedStreamId
     readonly property string streamPhase: {
         if (!isStreaming) return "idle";
         if (toolApprovalPending) return "awaiting-approval";
@@ -89,33 +94,16 @@ Item {
     readonly property int _backoffBaseMs: 2000
     readonly property int _backoffMaxMs: 30000
 
-    // --- Export state ---
-    property int _exportGeneration: 0
-    property string _activeExportId: ""
-    property string _activeExportKind: ""
-    property string _activeExportTarget: ""
-    property string _activeClipboardPurpose: ""
-    property string _activeClipboardIdentity: ""
-    property string _exportPendingBody: ""
-    property var _clipboardExportCommand: ["wl-copy", "--"]
-    property var _fileExportCommand: ["install"]
-    readonly property bool exportBusy: _activeExportId.length > 0
-    property string lastExportedFile: ""
-
     // --- Signals to coordinator ---
-    signal streamContentUpdated(string streamId, string deltaText)
-    signal streamThinkingUpdated(string streamId, string deltaText)
-    signal streamFinalized(string streamId, string stats)
-    signal streamError(string streamId, string message)
-    signal streamCancelled(string streamId, string stats)
+    signal streamContentUpdated(string streamId, string content, int variantIndex)
+    signal streamThinkingUpdated(string streamId, string thinking, int variantIndex)
+    signal streamFinalized(string streamId, string stats, var result)
+    signal streamError(string streamId, string message, var result)
+    signal streamCancelled(string streamId, string stats, var result)
     signal streamToolRoundReady(string streamId, var messages, string streamProvider, int streamGeneration)
     signal mcpToolCallRequested(string toolName, var toolArguments, var approvedContracts,
                                 string streamId, string streamProvider, int streamGeneration)
     signal mcpToolCallCancellationRequested(var callId, string reason)
-    signal exportSucceeded(string exportId, string exportKind, string target)
-    signal exportFailed(string exportId, string exportKind, string message)
-    signal messageCopySucceeded(string messageId)
-    signal messageCopyFailed(string messageId, string message)
 
     // --- Public API ---
 
@@ -143,6 +131,20 @@ Item {
             provider: _activeProvider,
             generation: _streamGeneration
         };
+    }
+
+    function currentStreamResult() {
+        return {
+            content: _streamContent,
+            thinking: _streamThinking,
+            variantIndex: _streamVariantIndex
+        };
+    }
+
+    function adjustVariantIndexAfterEviction(evicted, storeLength) {
+        _streamVariantIndex = Math.max(
+            0, Math.min(_streamVariantIndex - evicted, storeLength - 1));
+        return _streamVariantIndex;
     }
 
     function matchesActiveStream(streamId, streamProvider, streamGeneration) {
@@ -194,6 +196,9 @@ Item {
         // buffer so zero-output runs cannot replay the prior response.
         streamCollector.lastLen = 0;
         _fetchOutput = "";
+        _fetchOutputFinished = false;
+        _fetchExitObserved = false;
+        _fetchExitCode = -1;
         streamBuffer = "";
         _insideThinkTag = false;
         _tagBuffer = "";
@@ -227,24 +232,68 @@ Item {
         if (!_processActive)
             return;
 
+        if (failedToStart) {
+            _completeCurlProcess(exitCode, true);
+            return;
+        }
+
+        _fetchExitObserved = true;
+        _fetchExitCode = exitCode;
+        _completeCurlProcessIfReady();
+    }
+
+    function _finishCurlOutput() {
+        if (!_processActive)
+            return;
+        _fetchOutputFinished = true;
+        _completeCurlProcessIfReady();
+    }
+
+    function _completeCurlProcessIfReady() {
+        if (!_processActive || !_fetchOutputFinished || !_fetchExitObserved)
+            return;
+        _completeCurlProcess(_fetchExitCode, false);
+    }
+
+    function _completeCurlProcess(exitCode, failedToStart) {
+        if (!_processActive)
+            return;
+
         var fetchStreamId = _fetchStreamId;
         var fetchMatches = _fetchMatchesActiveStream();
+        var output = _fetchOutput;
         var queued = _pendingLaunch;
+
+        // Clear the finished transport before emitting any completion signal so
+        // observers can immediately launch the next process or inspect idle state.
         _processActive = false;
         _pendingLaunch = null;
         _fetchStreamId = "";
         _fetchProvider = "";
         _fetchGeneration = -1;
+        _fetchOutputFinished = false;
+        _fetchExitObserved = false;
+        _fetchExitCode = -1;
 
+        // A replacement owns the active identity now; drain the old process
+        // without applying its result or exit status to the new request.
         if (queued && _startCurl(queued))
             return;
         if (!fetchMatches)
             return;
-        if (failedToStart) {
-            _markError(fetchStreamId,
-                "Could not start the response process. Make sure curl is installed and available in PATH.");
-        } else if (exitCode !== 0) {
-            _markError(fetchStreamId, _curlExitHint(exitCode));
+
+        // Process exit is authoritative. A syntactically complete partial body
+        // must not be accepted when curl reports timeout, truncation, or another
+        // transport failure after stdout has drained.
+        if (fetchMatches) {
+            if (failedToStart) {
+                _markError(fetchStreamId,
+                    "Could not start the response process. Make sure curl is installed and available in PATH.");
+            } else if (exitCode !== 0) {
+                _markError(fetchStreamId, _curlExitHint(exitCode));
+            } else {
+                handleStreamFinished(output);
+            }
         }
     }
 
@@ -272,7 +321,7 @@ Item {
         _clearToolState(true, "Stream cancelled.");
         _pendingLaunch = null;
 
-        streamCancelled(streamId, _buildStreamStats());
+        streamCancelled(streamId, _buildStreamStats(), currentStreamResult());
         chatFetcher.running = false;
         activeStreamId = "";
         _activeProvider = "";
@@ -321,6 +370,9 @@ Item {
         streamBuffer = "";
         pendingStdinBody = "";
         _pendingLaunch = null;
+        _fetchOutputFinished = false;
+        _fetchExitObserved = false;
+        _fetchExitCode = -1;
         _lastFinalizedStreamId = "";
         _completedFetchStreamId = "";
         _completedFetchProvider = "";
@@ -357,105 +409,6 @@ Item {
             cancel();
     }
 
-    function exportToClipboard(markdownText) {
-        return _beginExport("clipboard", "clipboard", markdownText,
-                            _clipboardExportCommand, clipboardWriter,
-                            "conversation", "");
-    }
-
-    function copyMessageToClipboard(messageId, messageText) {
-        if (!messageId)
-            return false;
-        return _beginExport("clipboard", "clipboard", messageText,
-                            _clipboardExportCommand, clipboardWriter,
-                            "message", messageId);
-    }
-
-    function exportToFile(markdownText, homeDir, filename) {
-        // install -m 0600 sets restrictive permissions (owner-only read/write)
-        return _beginExport("file", filename, markdownText,
-                            _fileExportCommand.concat([
-                                "-m", "0600", "/dev/stdin", filename
-                            ]), exportFileWriter);
-    }
-
-    function _beginExport(exportKind, target, body, command, process,
-                          clipboardPurpose, clipboardIdentity) {
-        _exportGeneration++;
-        var exportId = exportKind + "-" + _exportGeneration;
-        if (exportBusy) {
-            var busyMessage = "Another clipboard or file operation is already in progress.";
-            if (exportKind === "clipboard" && clipboardPurpose === "message")
-                messageCopyFailed(clipboardIdentity, busyMessage);
-            else
-                exportFailed(exportId, exportKind, busyMessage);
-            return false;
-        }
-
-        _activeExportId = exportId;
-        _activeExportKind = exportKind;
-        _activeExportTarget = target;
-        _activeClipboardPurpose = clipboardPurpose || "";
-        _activeClipboardIdentity = clipboardIdentity || "";
-        _exportPendingBody = body;
-        process.command = command;
-        process.stdinEnabled = true;
-        process.running = true;
-        return true;
-    }
-
-    function _writeExportBody(process) {
-        process.write(_exportPendingBody);
-        process.stdinEnabled = false;
-        _exportPendingBody = "";
-    }
-
-    function _finishExport(exportKind, exitCode, failedToStart) {
-        if (_activeExportKind !== exportKind)
-            return;
-
-        var exportId = _activeExportId;
-        var target = _activeExportTarget;
-        var clipboardPurpose = _activeClipboardPurpose;
-        var clipboardIdentity = _activeClipboardIdentity;
-        _activeExportId = "";
-        _activeExportKind = "";
-        _activeExportTarget = "";
-        _activeClipboardPurpose = "";
-        _activeClipboardIdentity = "";
-        _exportPendingBody = "";
-
-        if (failedToStart) {
-            var commandName = exportKind === "clipboard" ? "wl-copy" : "install";
-            var startMessage = "Could not start "
-                + (clipboardPurpose === "message" ? "message copy" : exportKind + " export")
-                + ". Make sure " + commandName + " is installed and available in PATH.";
-            if (clipboardPurpose === "message")
-                messageCopyFailed(clipboardIdentity, startMessage);
-            else
-                exportFailed(exportId, exportKind, startMessage);
-        } else if (exitCode !== 0) {
-            var failureMessage = (clipboardPurpose === "message"
-                                  ? "Could not copy message to the clipboard"
-                                  : exportKind === "clipboard"
-                                    ? "Could not copy conversation to the clipboard"
-                                    : "Could not save the conversation")
-                + " (exit code " + exitCode + ").";
-            if (clipboardPurpose === "message")
-                messageCopyFailed(clipboardIdentity, failureMessage);
-            else
-                exportFailed(exportId, exportKind, failureMessage);
-        } else {
-            if (clipboardPurpose === "message") {
-                messageCopySucceeded(clipboardIdentity);
-            } else {
-                if (exportKind === "file")
-                    lastExportedFile = target;
-                exportSucceeded(exportId, exportKind, target);
-            }
-        }
-    }
-
     // --- Internal: stream processing ---
     function handleStreamChunk(chunk) {
         if (!isStreaming)
@@ -469,8 +422,7 @@ Item {
             var line = result.lines[i];
 
             if (line === "data: [DONE]" || line === "data:[DONE]") {
-                if (_pendingToolCalls.length === 0)
-                    _finalizeStream(activeStreamId);
+                _awaitingUsageCompletion = false;
                 continue;
             }
 
@@ -497,10 +449,6 @@ Item {
                 _hasApiOutputTokens = true;
                 if (_awaitingUsageCompletion) {
                     _awaitingUsageCompletion = false;
-                    if (_pendingToolCalls.length === 0) {
-                        _finalizeStream(activeStreamId);
-                        return;
-                    }
                 }
             }
 
@@ -539,7 +487,7 @@ Item {
                     if (delta.openAiCompatible && !delta.usageReceived)
                         _awaitingUsageCompletion = true;
                     else
-                        _finalizeStream(activeStreamId);
+                        _awaitingUsageCompletion = false;
                 }
             }
         }
@@ -773,7 +721,7 @@ Item {
         toolCallTimer.restart();
     }
 
-    function _onToolCallCompleted(callId, result) {
+    function completeToolCall(callId, result) {
         if (callId !== _pendingCallId) return;
         toolCallTimer.stop();
         _pendingCallId = -1;
@@ -784,7 +732,7 @@ Item {
         _executeNextToolCall();
     }
 
-    function _onToolCallFailed(callId, error) {
+    function failToolCall(callId, error) {
         if (callId !== _pendingCallId) return;
         toolCallTimer.stop();
         _pendingCallId = -1;
@@ -819,7 +767,7 @@ Item {
             if (root._pendingCallId >= 0) {
                 var callId = root._pendingCallId;
                 root.mcpToolCallCancellationRequested(callId, "MCP tool call timed out.");
-                root._onToolCallFailed(callId, "MCP tool call timed out.");
+                root.failToolCall(callId, "MCP tool call timed out.");
             }
         }
     }
@@ -829,7 +777,7 @@ Item {
         if (streamStartTime === 0) streamStartTime = Date.now();
         _roundContent += deltaText;
         _streamContent += deltaText;
-        streamContentUpdated(streamId, deltaText);
+        streamContentUpdated(streamId, _streamContent, _streamVariantIndex);
     }
 
     function _applyModelThinkingDelta(streamId, deltaText) {
@@ -837,14 +785,14 @@ Item {
         if (streamStartTime === 0) streamStartTime = Date.now();
         _roundThinking += deltaText;
         _streamThinking += deltaText;
-        streamThinkingUpdated(streamId, deltaText);
+        streamThinkingUpdated(streamId, _streamThinking, _streamVariantIndex);
     }
 
     function _appendToolAudit(streamId, text) {
         if (!text) return;
         if (streamStartTime === 0) streamStartTime = Date.now();
         _streamThinking += text;
-        streamThinkingUpdated(streamId, text);
+        streamThinkingUpdated(streamId, _streamThinking, _streamVariantIndex);
     }
 
     function _finalizeStream(streamId) {
@@ -870,7 +818,7 @@ Item {
         _cooldownUntil = 0;
         errorCooldownTimer.stop();
         _consecutiveErrors = 0;
-        streamFinalized(streamId, _buildStreamStats());
+        streamFinalized(streamId, _buildStreamStats(), currentStreamResult());
         _activeProvider = "";
     }
 
@@ -888,7 +836,7 @@ Item {
         _cooldownUntil = Backoff.computeCooldownUntil(_consecutiveErrors, _backoffBaseMs, _backoffMaxMs);
         errorCooldownTimer.interval = Math.max(1, _cooldownUntil - Date.now());
         errorCooldownTimer.restart();
-        streamError(streamId, message);
+        streamError(streamId, message, currentStreamResult());
         _activeProvider = "";
         return true;
     }
@@ -967,46 +915,11 @@ Item {
             }
 
             onStreamFinished: {
-                if (root._fetchMatchesActiveStream()
-                        || root._fetchMatchesFinalizedStream())
-                    root.handleStreamFinished(root._fetchOutput);
+                root._finishCurlOutput();
             }
         }
 
         onExited: exitCode => root._finishCurlProcess(exitCode, false)
     }
 
-    Process {
-        id: clipboardWriter
-        running: false
-        stdinEnabled: true
-
-        onRunningChanged: {
-            if (running && root._activeExportKind === "clipboard") {
-                root._writeExportBody(clipboardWriter);
-            } else if (!running && root._activeExportKind === "clipboard") {
-                // A failed QProcess start changes running back to false without
-                // emitting exited. Complete that request explicitly.
-                root._finishExport("clipboard", -1, true);
-            }
-        }
-
-        onExited: exitCode => root._finishExport("clipboard", exitCode, false)
-    }
-
-    Process {
-        id: exportFileWriter
-        running: false
-        stdinEnabled: true
-
-        onRunningChanged: {
-            if (running && root._activeExportKind === "file") {
-                root._writeExportBody(exportFileWriter);
-            } else if (!running && root._activeExportKind === "file") {
-                root._finishExport("file", -1, true);
-            }
-        }
-
-        onExited: exitCode => root._finishExport("file", exitCode, false)
-    }
 }

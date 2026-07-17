@@ -62,7 +62,7 @@ SettingsCard {
                 onEditingFinished: {
                     var url = text.trim();
                     if (!url) { ollamaUrlError.text = ""; return; }
-                    var result = Providers.validateUrl(url);
+                    var result = Providers.validateOllamaUrl(url);
                     if (!result.valid) { ollamaUrlError.text = result.error; return; }
                     ollamaUrlError.text = "";
                     aiService.setOllamaUrl(url);
@@ -288,13 +288,17 @@ SettingsCard {
             }
 
             DankButton {
-                text: aiService.ollamaReady ? "Stop Ollama" : "Start Ollama"
-                iconName: aiService.ollamaReady ? "stop" : "power"
+                text: aiService.ollamaLifecycleManaged
+                    ? (aiService.ollamaReady ? "Stop Ollama" : "Start Ollama")
+                    : "Retry Connection"
+                iconName: aiService.ollamaLifecycleManaged && aiService.ollamaReady
+                    ? "stop" : "refresh"
                 width: parent.width
-                backgroundColor: aiService.ollamaReady ? Theme.error : Theme.primary
+                backgroundColor: aiService.ollamaLifecycleManaged && aiService.ollamaReady
+                    ? Theme.error : Theme.primary
                 textColor: Theme.onPrimary
                 onClicked: {
-                    if (aiService.ollamaReady) {
+                    if (aiService.ollamaLifecycleManaged && aiService.ollamaReady) {
                         if (aiService.ollamaWeStarted)
                             aiService.shutdownOllama();
                         else

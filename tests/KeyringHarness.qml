@@ -7,6 +7,10 @@ ShellRoot {
 
     property bool finished: false
     property string phase: "failed-lookup"
+    property int operationSuccessCount: 0
+    property int operationFailureCount: 0
+    property string lastOperationFailure: ""
+    property var seenMutationIds: ({})
 
     function finish(success, message) {
         if (finished) return;
@@ -54,7 +58,8 @@ ShellRoot {
 
             keyring._keyringCache = ({ openai: "clear-success-key" });
             phase = "successful-clear";
-            keyring.clearKeyringKey("openai");
+            if (!check(keyring.clearKeyringKey("openai"),
+                    "successful clear was not queued")) return;
             check(keyring._keyringCache.openai === "clear-success-key",
                   "clear removed the cache before secret-tool completed");
             return;
@@ -66,7 +71,8 @@ ShellRoot {
 
             keyring._keyringCache = ({ anthropic: "clear-failure-key" });
             phase = "failed-clear";
-            keyring.clearKeyringKey("anthropic");
+            if (!check(keyring.clearKeyringKey("anthropic"),
+                    "failed clear was not queued")) return;
             check(keyring._keyringCache.anthropic === "clear-failure-key",
                   "failed clear removed the cache before secret-tool completed");
             return;
@@ -78,7 +84,8 @@ ShellRoot {
 
             keyring._keyringCache = ({});
             phase = "provider-overlap";
-            keyring.storeKeyringKey("openai", "stored-openai-key");
+            if (!check(keyring.storeKeyringKey("openai", "stored-openai-key"),
+                    "store was not queued")) return;
             keyring.provider = "gemini";
             keyring.refreshKeyringKey();
             check(keyring._keyringCache.openai === undefined,
@@ -95,14 +102,10 @@ ShellRoot {
                 custom: "cached-custom-key",
                 openai: "stored-openai-key"
             });
-            keyring._keyringOperation = ({
-                type: "clear", provider: "custom", key: ""
-            });
-            keyring._keyringQueue = [{
-                type: "lookup", provider: "gemini", key: ""
-            }];
             phase = "failed-start";
-            keyring._recoverFailedKeyringStart();
+            keyring._secretToolExecutable = "ephemera-missing-secret-tool";
+            if (!check(keyring.clearKeyringKey("custom"),
+                    "failed-start clear was not queued")) return;
             return;
         }
 
@@ -111,9 +114,10 @@ ShellRoot {
                 return;
             if (!check(keyring._keyringCache.custom === "cached-custom-key",
                     "failed command start changed the last known key")) return;
-            if (!check(keyring._keyringCache.gemini === "actual-gemini-key",
-                    "failed command start did not continue the queue")) return;
-            finish(true, "lookup outcomes, clear outcomes, provider overlap, and failed starts kept the cache truthful");
+            if (!check(operationSuccessCount === 2 && operationFailureCount === 2
+                    && lastOperationFailure.indexOf("system keyring") >= 0,
+                    "keyring mutation results were not emitted exactly and safely")) return;
+            finish(true, "lookup outcomes, mutation results, provider overlap, and failed starts kept the cache truthful");
         }
     }
 
@@ -136,5 +140,18 @@ ShellRoot {
     KeyringService {
         id: keyring
         provider: "openai"
+        onKeyringOperationSucceeded: (operationId, operation, provider) => {
+            if (!root.check(operationId.length > 0 && !root.seenMutationIds[operationId],
+                    "successful mutation omitted or reused its operation identity")) return;
+            root.seenMutationIds[operationId] = true;
+            root.operationSuccessCount++;
+        }
+        onKeyringOperationFailed: (operationId, operation, provider, message) => {
+            if (!root.check(operationId.length > 0 && !root.seenMutationIds[operationId],
+                    "failed mutation omitted or reused its operation identity")) return;
+            root.seenMutationIds[operationId] = true;
+            root.operationFailureCount++;
+            root.lastOperationFailure = message;
+        }
     }
 }

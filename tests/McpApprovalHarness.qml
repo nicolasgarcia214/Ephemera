@@ -82,10 +82,10 @@ ShellRoot {
 
         onToolCallCompleted: (callId, result) => {
             root.toolCompletionCount++;
-            streaming._onToolCallCompleted(callId, result);
+            streaming.completeToolCall(callId, result);
         }
 
-        onToolCallFailed: (callId, error) => streaming._onToolCallFailed(callId, error)
+        onToolCallFailed: (callId, error) => streaming.failToolCall(callId, error)
     }
 
     StreamingService {

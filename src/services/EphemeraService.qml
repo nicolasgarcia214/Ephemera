@@ -27,10 +27,10 @@ Item {
     property alias activeStreamId: streamingService.activeStreamId
     property alias streamStartTime: streamingService.streamStartTime
     property alias streamTokenCount: streamingService.streamTokenCount
-    property alias apiOutputTokens: streamingService._apiOutputTokens
+    property alias apiOutputTokens: streamingService.apiOutputTokens
     property alias lastRequestFailed: streamingService.lastRequestFailed
     property alias lastHttpStatus: streamingService.lastHttpStatus
-    readonly property bool conversationExportBusy: streamingService.exportBusy
+    readonly property bool conversationExportBusy: exportService.exportBusy
     property string _messageCopyFeedbackId: ""
     readonly property bool mcpToolApprovalPending: streamingService.toolApprovalPending
     readonly property string mcpPendingToolName: streamingService.pendingToolName
@@ -44,6 +44,8 @@ Item {
     signal conversationExportSucceeded(string exportId, string exportKind, string target)
     signal conversationExportFailed(string exportId, string exportKind, string message)
     signal messageCopyFailed(string messageId, string message)
+    signal keyringOperationSucceeded(string operationId, string operation, string provider)
+    signal keyringOperationFailed(string operationId, string operation, string provider, string message)
 
     // --- Persistence (opt-in) ---
     property bool persistChat: false
@@ -111,6 +113,7 @@ Item {
     property alias ollamaIdleMinutes: ollamaManager.ollamaIdleMinutes
     property alias ollamaRetries: ollamaManager.ollamaRetries
     readonly property int ollamaMaxRetries: ollamaManager.ollamaMaxRetries
+    readonly property bool ollamaLifecycleManaged: ollamaManager.localProcessManaged
 
     // --- Keyring (delegated to KeyringService) ---
     property alias _keyringAvailable: keyringService._keyringAvailable
@@ -168,6 +171,10 @@ Item {
     KeyringService {
         id: keyringService
         provider: root.provider
+        onKeyringOperationSucceeded: (operationId, operation, provider) =>
+            root.keyringOperationSucceeded(operationId, operation, provider)
+        onKeyringOperationFailed: (operationId, operation, provider, message) =>
+            root.keyringOperationFailed(operationId, operation, provider, message)
     }
 
     MCPService {
@@ -175,8 +182,8 @@ Item {
         mcpUrl: root.mcpUrl
         allowInsecureHttp: root.mcpInsecureHttpAllowed
         enabled: root.isOllama && root.mcpEnabled
-        onToolCallCompleted: (callId, result) => streamingService._onToolCallCompleted(callId, result)
-        onToolCallFailed: (callId, error) => streamingService._onToolCallFailed(callId, error)
+        onToolCallCompleted: (callId, result) => streamingService.completeToolCall(callId, result)
+        onToolCallFailed: (callId, error) => streamingService.failToolCall(callId, error)
         onMcpToolsUpdated: root._pruneMcpToolApprovals()
     }
 
@@ -186,17 +193,13 @@ Item {
         ollamaUrl: root.ollamaUrl
         timeout: root.timeout
 
-        onStreamContentUpdated: (streamId, deltaText) => root._applyStreamContent(streamId)
-        onStreamThinkingUpdated: (streamId, deltaText) => root._applyStreamThinking(streamId)
-        onStreamFinalized: (streamId, stats) => root._applyFinalize(streamId, stats)
-        onStreamError: (streamId, message) => root._applyError(streamId, message)
-        onStreamCancelled: (streamId, stats) => root._applyCancelled(streamId, stats)
-        onExportSucceeded: (exportId, exportKind, target) =>
-            root.conversationExportSucceeded(exportId, exportKind, target)
-        onExportFailed: (exportId, exportKind, message) =>
-            root.conversationExportFailed(exportId, exportKind, message)
-        onMessageCopySucceeded: messageId => root._finishMessageCopy(messageId, true, "")
-        onMessageCopyFailed: (messageId, message) => root._finishMessageCopy(messageId, false, message)
+        onStreamContentUpdated: (streamId, content, variantIndex) =>
+            root._applyStreamContent(streamId, content, variantIndex)
+        onStreamThinkingUpdated: (streamId, thinking, variantIndex) =>
+            root._applyStreamThinking(streamId, thinking, variantIndex)
+        onStreamFinalized: (streamId, stats, result) => root._applyFinalize(streamId, stats, result)
+        onStreamError: (streamId, message, result) => root._applyError(streamId, message, result)
+        onStreamCancelled: (streamId, stats, result) => root._applyCancelled(streamId, stats, result)
         mcpConnected: mcpServiceInstance.isConnected
         mcpTools: mcpServiceInstance.tools
         toolCallsAllowed: root.mcpToolRequestsAllowed
@@ -217,6 +220,16 @@ Item {
             root._launchCurlWithMessages(streamId, messages, streamProvider, streamGeneration)
     }
 
+    ExportService {
+        id: exportService
+        onExportSucceeded: (exportId, exportKind, target) =>
+            root.conversationExportSucceeded(exportId, exportKind, target)
+        onExportFailed: (exportId, exportKind, message) =>
+            root.conversationExportFailed(exportId, exportKind, message)
+        onMessageCopySucceeded: messageId => root._finishMessageCopy(messageId, true, "")
+        onMessageCopyFailed: (messageId, message) => root._finishMessageCopy(messageId, false, message)
+    }
+
     OllamaManager {
         id: ollamaManager
         active: root.isOllama
@@ -231,8 +244,8 @@ Item {
         }
 
         onGpuStatusReady: label => {
-            if (!streamingService._lastFinalizedStreamId) return;
-            var idx = root.findIndexById(streamingService._lastFinalizedStreamId);
+            if (!streamingService.lastFinalizedStreamId) return;
+            var idx = root.findIndexById(streamingService.lastFinalizedStreamId);
             if (idx >= 0) {
                 var msg = root.messagesModel.get(idx);
                 var stats = msg.streamStats || "";
@@ -247,8 +260,8 @@ Item {
     function resolveApiKey(prov) { return keyringService.resolveApiKey(prov || provider); }
     function hasApiKeyForProvider(prov) { return keyringService.hasApiKeyForProvider(prov); }
     function apiKeySource(prov) { return keyringService.apiKeySource(prov); }
-    function storeKeyringKey(prov, key) { keyringService.storeKeyringKey(prov, key); }
-    function clearKeyringKey(prov) { keyringService.clearKeyringKey(prov); }
+    function storeKeyringKey(prov, key) { return keyringService.storeKeyringKey(prov, key); }
+    function clearKeyringKey(prov) { return keyringService.clearKeyringKey(prov); }
     function refreshKeyringKey() { keyringService.refreshKeyringKey(); }
 
     function _envVarForProvider(prov) {
@@ -301,7 +314,10 @@ Item {
         maxTokens = PluginService.loadPluginData(pluginId, "maxTokens", 4096);
         maxTurns = PluginService.loadPluginData(pluginId, "maxTurns", 10);
         timeout = PluginService.loadPluginData(pluginId, "timeout", 300);
-        systemPrompt = String(PluginService.loadPluginData(pluginId, "systemPrompt", "")).trim();
+        var loadedSystemPrompt = PluginService.loadPluginData(
+            pluginId, "systemPrompt", "");
+        systemPrompt = typeof loadedSystemPrompt === "string"
+            ? loadedSystemPrompt : "";
         thinkingEnabled = PluginService.loadPluginData(pluginId, "thinkingEnabled", false) === true;
         panelOnLeft = PluginService.loadPluginData(pluginId, "panelOnLeft", false) === true;
         mcpEnabled = PluginService.loadPluginData(pluginId, "mcpEnabled", false) === true;
@@ -333,7 +349,15 @@ Item {
         if (!nextPersistChat && (!_settingsLoaded || persistChat))
             _deletePersistedChat();
         persistChat = nextPersistChat;
-        ollamaManager.ollamaIdleMinutes = Number(PluginService.loadPluginData(pluginId, "ollamaIdleMinutes", 5)) || 5;
+        var rawIdleMinutes = PluginService.loadPluginData(
+            pluginId, "ollamaIdleMinutes", 5);
+        var loadedIdleMinutes = Number(rawIdleMinutes);
+        ollamaManager.ollamaIdleMinutes = typeof rawIdleMinutes === "number"
+            && isFinite(loadedIdleMinutes)
+            && loadedIdleMinutes >= 0
+            && loadedIdleMinutes <= 35791
+            && Math.floor(loadedIdleMinutes) === loadedIdleMinutes
+            ? loadedIdleMinutes : 5;
 
         var range = Providers.getTemperatureRange(provider);
         if (temperature > range.max) {
@@ -382,8 +406,8 @@ Item {
     }
 
     function setOllamaUrl(url, persistChange) {
-        var next = String(url || "").trim();
-        if (!Providers.validateUrl(next).valid)
+        var next = Providers.normalizeBaseUrl(String(url || "").trim());
+        if (!Providers.validateOllamaUrl(next).valid)
             return false;
 
         var changed = next !== ollamaUrl;
@@ -771,9 +795,10 @@ Item {
         var msg = messagesModel.get(idx);
         if (newIndex < 0 || newIndex >= msg.variantCount) return;
 
-        if (isStreaming && activeStreamId === msgId && newIndex === streamingService._streamVariantIndex) {
-            messagesModel.setProperty(idx, "content", streamingService._streamContent);
-            messagesModel.setProperty(idx, "thinking", streamingService._streamThinking);
+        var streamResult = streamingService.currentStreamResult();
+        if (isStreaming && activeStreamId === msgId && newIndex === streamResult.variantIndex) {
+            messagesModel.setProperty(idx, "content", streamResult.content);
+            messagesModel.setProperty(idx, "thinking", streamResult.thinking);
             messagesModel.setProperty(idx, "variantIndex", newIndex);
             messagesModel.setProperty(idx, "modelName", _requestModelForStream(msgId));
             messagesModel.setProperty(idx, "status", "streaming");
@@ -803,20 +828,20 @@ Item {
     }
 
     function exportConversation() {
-        streamingService.exportToClipboard(buildConversationMarkdown());
+        exportService.exportToClipboard(buildConversationMarkdown());
     }
 
     function exportConversationToFile() {
         var text = buildConversationMarkdown();
         var filename = ChatExport.generateFilename(Quickshell.env("HOME"));
-        streamingService.exportToFile(text, Quickshell.env("HOME"), filename);
+        exportService.exportToFile(text, Quickshell.env("HOME"), filename);
     }
 
     function copyMessage(msgId) {
         var idx = findIndexById(msgId);
         if (idx < 0)
             return false;
-        if (streamingService.exportBusy) {
+        if (exportService.exportBusy) {
             messageCopyFailed(
                 msgId, "Another clipboard or file operation is already in progress.");
             return false;
@@ -827,7 +852,7 @@ Item {
         _messageCopyFeedbackTimer.stop();
         _messageCopyFeedbackId = msgId;
         _setMessageCopyStatus(msgId, "pending");
-        return streamingService.copyMessageToClipboard(
+        return exportService.copyMessageToClipboard(
             msgId, messagesModel.get(idx).content || "");
     }
 
@@ -1104,38 +1129,38 @@ Item {
 
     // ─── Stream signal handlers (apply to messagesModel) ───────────
 
-    function _applyStreamContent(streamId) {
+    function _applyStreamContent(streamId, content, variantIndex) {
         var idx = findIndexById(streamId);
         if (idx >= 0) {
             var msg = messagesModel.get(idx);
-            if (msg.variantIndex === streamingService._streamVariantIndex)
-                messagesModel.setProperty(idx, "content", streamingService._streamContent);
+            if (msg.variantIndex === variantIndex)
+                messagesModel.setProperty(idx, "content", content);
             messagesModel.setProperty(idx, "status", "streaming");
         }
     }
 
-    function _applyStreamThinking(streamId) {
+    function _applyStreamThinking(streamId, thinking, variantIndex) {
         var idx = findIndexById(streamId);
         if (idx >= 0) {
             var msg = messagesModel.get(idx);
-            if (msg.variantIndex === streamingService._streamVariantIndex)
-                messagesModel.setProperty(idx, "thinking", streamingService._streamThinking);
+            if (msg.variantIndex === variantIndex)
+                messagesModel.setProperty(idx, "thinking", thinking);
             messagesModel.setProperty(idx, "status", "streaming");
         }
     }
 
-    function _applyFinalize(streamId, stats) {
+    function _applyFinalize(streamId, stats, result) {
         var requestModel = _requestModelForStream(streamId);
         var requestProvider = _activeRequestSnapshot
             && _requestSnapshotStreamId === streamId
             ? _activeRequestSnapshot.provider : provider;
         var idx = findIndexById(streamId);
         if (idx >= 0) {
-            _saveVariant(streamId, streamingService._streamVariantIndex, streamingService._streamContent, streamingService._streamThinking, requestModel);
+            _saveVariant(streamId, result.variantIndex, result.content, result.thinking, requestModel);
             var msg = messagesModel.get(idx);
-            if (msg.variantIndex === streamingService._streamVariantIndex) {
-                messagesModel.setProperty(idx, "content", streamingService._streamContent);
-                messagesModel.setProperty(idx, "thinking", streamingService._streamThinking);
+            if (msg.variantIndex === result.variantIndex) {
+                messagesModel.setProperty(idx, "content", result.content);
+                messagesModel.setProperty(idx, "thinking", result.thinking);
             }
             messagesModel.setProperty(idx, "streamStats", stats);
             messagesModel.setProperty(idx, "status", "ok");
@@ -1145,28 +1170,28 @@ Item {
         _clearRequestSnapshot(streamId);
     }
 
-    function _applyError(streamId, message) {
+    function _applyError(streamId, message, result) {
         var requestModel = _requestModelForStream(streamId);
         var idx = findIndexById(streamId);
         if (idx >= 0) {
-            _saveVariant(streamId, streamingService._streamVariantIndex, message, streamingService._streamThinking, requestModel);
+            _saveVariant(streamId, result.variantIndex, message, result.thinking, requestModel);
             var msg = messagesModel.get(idx);
-            if (msg.variantIndex === streamingService._streamVariantIndex)
+            if (msg.variantIndex === result.variantIndex)
                 messagesModel.setProperty(idx, "content", message);
             messagesModel.setProperty(idx, "status", "error");
         }
         _clearRequestSnapshot(streamId);
     }
 
-    function _applyCancelled(streamId, stats) {
+    function _applyCancelled(streamId, stats, result) {
         var requestModel = _requestModelForStream(streamId);
         var idx = findIndexById(streamId);
         if (idx >= 0) {
-            _saveVariant(streamId, streamingService._streamVariantIndex, streamingService._streamContent, streamingService._streamThinking, requestModel);
+            _saveVariant(streamId, result.variantIndex, result.content, result.thinking, requestModel);
             var msg = messagesModel.get(idx);
-            if (msg.variantIndex === streamingService._streamVariantIndex) {
-                messagesModel.setProperty(idx, "content", streamingService._streamContent);
-                messagesModel.setProperty(idx, "thinking", streamingService._streamThinking);
+            if (msg.variantIndex === result.variantIndex) {
+                messagesModel.setProperty(idx, "content", result.content);
+                messagesModel.setProperty(idx, "thinking", result.thinking);
             }
             messagesModel.setProperty(idx, "streamStats", stats);
             messagesModel.setProperty(idx, "status", "ok");
@@ -1181,7 +1206,7 @@ Item {
 
         if (result.evicted > 0) {
             var storeLen = store[msgId].length;
-            streamingService._streamVariantIndex = Math.max(0, Math.min(streamingService._streamVariantIndex - result.evicted, storeLen - 1));
+            streamingService.adjustVariantIndexAfterEviction(result.evicted, storeLen);
             var idx = findIndexById(msgId);
             if (idx >= 0) {
                 var msg = messagesModel.get(idx);

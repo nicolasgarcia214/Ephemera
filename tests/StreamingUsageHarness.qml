@@ -138,21 +138,21 @@ ShellRoot {
             root.finalizedCount++;
             if (root.phase === "openai-usage") {
                 if (!root.check(streamId === "openai-usage"
-                        && streaming._apiOutputTokens === 12,
+                        && streaming.apiOutputTokens === 12,
                         "OpenAI finalized before its usage-only chunk")) return;
                 if (!root.check(stats.indexOf("tok/s") >= 0
                         && stats.indexOf("~") < 0,
                         "OpenAI stats did not use API completion tokens")) return;
             } else if (root.phase === "custom-missing-usage") {
                 if (!root.check(streamId === "custom-missing-usage"
-                        && streaming._apiOutputTokens === 0,
+                        && streaming.apiOutputTokens === 0,
                         "custom provider missing-usage fallback was not preserved")) return;
             } else if (root.phase === "ollama-usage") {
                 if (!root.check(streamId === "ollama-usage"
-                        && streaming._apiOutputTokens === 7,
+                        && streaming.apiOutputTokens === 7,
                         "Ollama compatibility stream finalized before usage")) return;
             } else if (!root.check(streamId === "native-ollama"
-                    && streaming._apiOutputTokens === 5,
+                    && streaming.apiOutputTokens === 5,
                     "native Ollama completion changed")) return;
 
             if (!root.check(root.finalizedCount <= 4,

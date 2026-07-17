@@ -73,6 +73,7 @@ mkdir -p "$CONFIG_DIR/src/services" "$CONFIG_DIR/src/lib" \
 cp "$ROOT/tests/McpServiceHarness.qml" "$CONFIG_DIR/McpServiceHarness.qml"
 cp "$ROOT/tests/McpApprovalHarness.qml" "$CONFIG_DIR/McpApprovalHarness.qml"
 cp "$ROOT/tests/StreamingErrorHarness.qml" "$CONFIG_DIR/StreamingErrorHarness.qml"
+cp "$ROOT/tests/StreamingExitHarness.qml" "$CONFIG_DIR/StreamingExitHarness.qml"
 cp "$ROOT/tests/StreamingUsageHarness.qml" "$CONFIG_DIR/StreamingUsageHarness.qml"
 cp "$ROOT/tests/ExportLifecycleHarness.qml" "$CONFIG_DIR/ExportLifecycleHarness.qml"
 cp "$ROOT/tests/ProviderIsolationHarness.qml" "$CONFIG_DIR/ProviderIsolationHarness.qml"
@@ -84,6 +85,9 @@ cp "$ROOT/tests/KeyringHarness.qml" "$CONFIG_DIR/KeyringHarness.qml"
 cp "$ROOT/tests/OllamaProbeLimitHarness.qml" "$CONFIG_DIR/OllamaProbeLimitHarness.qml"
 cp "$ROOT/tests/EphemeraPanelHarness.qml" "$CONFIG_DIR/EphemeraPanelHarness.qml"
 cp "$ROOT/tests/ShippingCompileHarness.qml" "$CONFIG_DIR/ShippingCompileHarness.qml"
+cp "$ROOT/tests/SettingsLifecycleHarness.qml" "$CONFIG_DIR/SettingsLifecycleHarness.qml"
+cp "$ROOT/tests/SettingsCloseGuardHarness.qml" "$CONFIG_DIR/SettingsCloseGuardHarness.qml"
+cp "$ROOT/tests/ApiKeyLifecycleHarness.qml" "$CONFIG_DIR/ApiKeyLifecycleHarness.qml"
 cp "$ROOT/tests/fixtures/qml/Common/"* "$CONFIG_DIR/Common/"
 cp "$ROOT/tests/fixtures/qml/Services/"* "$CONFIG_DIR/Services/"
 cp "$ROOT/tests/fixtures/qml/Widgets/"* "$CONFIG_DIR/Widgets/"
@@ -94,6 +98,7 @@ cp "$ROOT/src/services/KeyringService.qml" "$CONFIG_DIR/src/services/KeyringServ
 cp "$ROOT/src/services/MCPService.qml" "$CONFIG_DIR/src/services/MCPService.qml"
 cp "$ROOT/src/services/OllamaManager.qml" "$CONFIG_DIR/src/services/OllamaManager.qml"
 cp "$ROOT/src/services/StreamingService.qml" "$CONFIG_DIR/src/services/StreamingService.qml"
+cp "$ROOT/src/services/ExportService.qml" "$CONFIG_DIR/src/services/ExportService.qml"
 cp "$ROOT/src/lib/ChatExport.js" "$CONFIG_DIR/src/lib/ChatExport.js"
 cp "$ROOT/src/lib/Mcp.js" "$CONFIG_DIR/src/lib/Mcp.js"
 cp "$ROOT/src/lib/McpSchema.js" "$CONFIG_DIR/src/lib/McpSchema.js"
@@ -105,6 +110,7 @@ cp "$ROOT/src/lib/VariantStore.js" "$CONFIG_DIR/src/lib/VariantStore.js"
 cp "$ROOT/src/lib/ChatPersistence.js" "$CONFIG_DIR/src/lib/ChatPersistence.js"
 cp "$ROOT/src/lib/ErrorHints.js" "$CONFIG_DIR/src/lib/ErrorHints.js"
 cp "$ROOT/src/lib/Backoff.js" "$CONFIG_DIR/src/lib/Backoff.js"
+cp "$ROOT/src/lib/Version.js" "$CONFIG_DIR/src/lib/Version.js"
 cp "$ROOT/src/runtime/McpFetchGuard.cjs" "$CONFIG_DIR/src/runtime/McpFetchGuard.cjs"
 
 GUARD_MODULES="$RUNTIME_DIR/guard/node_modules"
@@ -311,14 +317,18 @@ run_ollama_probe_limit_harness() {
 run_harness McpServiceHarness EPHEMERA_MCP_QML_TEST
 run_harness McpApprovalHarness EPHEMERA_MCP_APPROVAL_TEST
 run_harness StreamingErrorHarness EPHEMERA_STREAM_ERROR_TEST
+run_harness StreamingExitHarness EPHEMERA_STREAM_EXIT_TEST
 run_harness StreamingUsageHarness EPHEMERA_STREAM_USAGE_TEST
 run_harness ExportLifecycleHarness EPHEMERA_EXPORT_LIFECYCLE_TEST
 run_harness ProviderIsolationHarness EPHEMERA_PROVIDER_ISOLATION_TEST
 run_harness CoordinatorHarness EPHEMERA_COORDINATOR_TEST
 run_harness SubmissionHarness EPHEMERA_SUBMISSION_TEST
 run_harness PersistenceHarness EPHEMERA_PERSISTENCE_TEST
+run_harness SettingsLifecycleHarness EPHEMERA_SETTINGS_LIFECYCLE_TEST
+run_harness SettingsCloseGuardHarness EPHEMERA_SETTINGS_CLOSE_GUARD_TEST
 run_ollama_lifecycle_harness
 run_harness KeyringHarness EPHEMERA_KEYRING_TEST 1
+run_harness ApiKeyLifecycleHarness EPHEMERA_API_KEY_LIFECYCLE_TEST
 run_ollama_probe_limit_harness
 run_harness EphemeraPanelHarness EPHEMERA_PANEL_QML_TEST
 run_harness ShippingCompileHarness EPHEMERA_SHIPPING_COMPILE_TEST

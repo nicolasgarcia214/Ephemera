@@ -15,6 +15,11 @@ Item {
     property var _keyringQueue: []
     property var _keyringOperation: null
     property string _keyringOperationOutput: ""
+    property int _keyringOperationSequence: 0
+    property string _secretToolExecutable: "secret-tool"
+
+    signal keyringOperationSucceeded(string operationId, string operation, string provider)
+    signal keyringOperationFailed(string operationId, string operation, string provider, string message)
 
     // --- Public API ---
 
@@ -56,15 +61,15 @@ Item {
     }
 
     function storeKeyringKey(prov, key) {
-        if (!_keyringAvailable || !key) return;
+        if (!_keyringAvailable || !key) return "";
         var safeKey = Providers.sanitizeApiKey(key);
-        if (!safeKey) return;
-        _enqueueKeyringOperation("store", prov, safeKey);
+        if (!safeKey) return "";
+        return _enqueueKeyringOperation("store", prov, safeKey);
     }
 
     function clearKeyringKey(prov) {
-        if (!_keyringAvailable) return;
-        _enqueueKeyringOperation("clear", prov, "");
+        if (!_keyringAvailable) return "";
+        return _enqueueKeyringOperation("clear", prov, "");
     }
 
     // --- Internal ---
@@ -77,18 +82,29 @@ Item {
         return c;
     }
 
-    function _appendKeyringOperation(type, prov, key) {
+    function _appendKeyringOperation(type, prov, key, operationId) {
         var queue = _keyringQueue.slice();
-        queue.push({ type: type, provider: prov, key: key });
+        queue.push({
+            type: type,
+            provider: prov,
+            key: key,
+            operationId: operationId || ""
+        });
         _keyringQueue = queue;
     }
 
     function _enqueueKeyringOperation(type, prov, key) {
         var info = Providers.getProviderInfo(prov);
-        if (!info.envVar) return;
-        _appendKeyringOperation(type, prov, key);
+        if (!info.envVar) return "";
+        var operationId = "";
+        if (type === "store" || type === "clear") {
+            _keyringOperationSequence++;
+            operationId = type + "-" + Date.now() + "-" + _keyringOperationSequence;
+        }
+        _appendKeyringOperation(type, prov, key, operationId);
         if (!_keyringOperation && !keyringCommand.running)
             Qt.callLater(_startNextKeyringOperation);
+        return operationId || "lookup";
     }
 
     function _finishKeyringOperation(exitCode) {
@@ -111,7 +127,7 @@ Item {
                 storeCache[operation.provider] = operation.key;
                 _keyringCache = storeCache;
             } else {
-                _appendKeyringOperation("lookup", operation.provider, "");
+                _appendKeyringOperation("lookup", operation.provider, "", "");
             }
         } else if (operation && operation.type === "clear") {
             if (exitCode === 0) {
@@ -119,7 +135,19 @@ Item {
                 delete clearCache[operation.provider];
                 _keyringCache = clearCache;
             } else {
-                _appendKeyringOperation("lookup", operation.provider, "");
+                _appendKeyringOperation("lookup", operation.provider, "", "");
+            }
+        }
+
+        if (operation && (operation.type === "store" || operation.type === "clear")) {
+            if (exitCode === 0) {
+                keyringOperationSucceeded(operation.operationId, operation.type,
+                                          operation.provider);
+            } else {
+                var action = operation.type === "store" ? "store" : "clear";
+                keyringOperationFailed(operation.operationId, operation.type,
+                    operation.provider,
+                    "Could not " + action + " the API key in the system keyring.");
             }
         }
 
@@ -144,17 +172,17 @@ Item {
         keyringCommand.stdinEnabled = (operation.type === "store");
 
         if (operation.type === "lookup") {
-            keyringCommand.command = ["secret-tool", "lookup", "service",
+            keyringCommand.command = [_secretToolExecutable, "lookup", "service",
                                       "ephemera", "provider", operation.provider];
         } else if (operation.type === "store") {
             var info = Providers.getProviderInfo(operation.provider);
             var label = "Ephemera " + (info.name || operation.provider)
                         + " API key";
-            keyringCommand.command = ["secret-tool", "store", "--label=" + label,
+            keyringCommand.command = [_secretToolExecutable, "store", "--label=" + label,
                                       "service", "ephemera", "provider",
                                       operation.provider];
         } else {
-            keyringCommand.command = ["secret-tool", "clear", "service",
+            keyringCommand.command = [_secretToolExecutable, "clear", "service",
                                       "ephemera", "provider", operation.provider];
         }
         keyringCommand.running = true;

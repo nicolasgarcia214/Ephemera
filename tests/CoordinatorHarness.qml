@@ -35,6 +35,24 @@ ShellRoot {
                 && service.baseUrl === "http://127.0.0.1:11434",
                 "initial Ollama URL load did not synchronize endpoint identities")) return;
 
+        var invalidIdleValues = [
+            null, "", "   ", -1, 2.5, "not-a-number", false, true, [0],
+            35792, 2147483648, 1e100
+        ];
+        for (var idleIndex = 0; idleIndex < invalidIdleValues.length; idleIndex++) {
+            PluginService.savePluginData(
+                "ephemera", "ollamaIdleMinutes", invalidIdleValues[idleIndex]);
+            if (!check(service.ollamaIdleMinutes === 5,
+                    "malformed idle timeout did not fall back safely")) return;
+        }
+        PluginService.savePluginData("ephemera", "ollamaIdleMinutes", 0);
+        if (!check(service.ollamaIdleMinutes === 0,
+                "persisted Never idle timeout reloaded as a nonzero value")) return;
+        var exactPrompt = "  Preserve leading space\n雪 and trailing space  ";
+        PluginService.savePluginData("ephemera", "systemPrompt", exactPrompt);
+        if (!check(service.systemPrompt === exactPrompt,
+                "system prompt whitespace or Unicode changed during reload")) return;
+
         service.messagesModel.append({
             role: "user", content: "private Ollama context", thinking: "",
             id: "user-test", timestamp: 1, status: "ok",
