@@ -19,7 +19,8 @@ cp "$ROOT/src/components/EphemeraPanel.qml" "$CONFIG_DIR/src/components/Ephemera
 cp "$ROOT/tests/fixtures/qml/Common/"* "$CONFIG_DIR/Common/"
 cp "$ROOT/tests/fixtures/qml/Services/"* "$CONFIG_DIR/Services/"
 
-output=$(QT_QPA_PLATFORM=wayland \
+output=$(EPHEMERA_TEST_EXPECT_LAYER_SHELL=1 \
+    QT_QPA_PLATFORM=wayland \
     QS_NO_RELOAD_POPUP=1 \
     DMS_DISABLE_LAYER=1 \
     timeout 8s qs -p "$CONFIG_DIR/EphemeraPanelHarness.qml" 2>&1) || {

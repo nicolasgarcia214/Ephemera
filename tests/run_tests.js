@@ -2661,6 +2661,18 @@ section("EphemeraPanel bounded geometry and rapid side switching");
         path.join(__dirname, "..", "src/components/EphemeraPanel.qml"),
         "utf8"
     );
+    var qmlRunnerSource = fs.readFileSync(
+        path.join(__dirname, "run_qml_tests.sh"),
+        "utf8"
+    );
+    var livePanelRunnerSource = fs.readFileSync(
+        path.join(__dirname, "run_panel_qml_test.sh"),
+        "utf8"
+    );
+    var panelHarnessSource = fs.readFileSync(
+        path.join(__dirname, "EphemeraPanelHarness.qml"),
+        "utf8"
+    );
     var functionMatch = panelSource.match(
         /function _syncWindowEdge\(\) \{([\s\S]*?)\n    \}\n\n    visible:/
     );
@@ -2732,6 +2744,43 @@ section("EphemeraPanel bounded geometry and rapid side switching");
         panelSource.indexOf("x: slide.x + layeredContent.x") >= 0
             && panelSource.indexOf("width: slide.width") >= 0,
         "input mask follows the animated slide geometry"
+    );
+    assert(
+        qmlRunnerSource.indexOf("TEST_QT_QUICK_BACKEND=software") >= 0
+            && qmlRunnerSource.indexOf(
+                'QT_QUICK_BACKEND="$TEST_QT_QUICK_BACKEND"'
+            ) >= 0,
+        "headless Pixman QML tests use Qt Quick's software scene graph"
+    );
+    assert(
+        qmlRunnerSource.indexOf("--width=1200 --height=800 --no-config") >= 0,
+        "headless Weston exposes deterministic wide-screen geometry"
+    );
+    assert(
+        panelHarnessSource.indexOf(
+            "modelData: Quickshell.screens.length > 0 ? Quickshell.screens[0] : null"
+        ) >= 0
+            && panelHarnessSource.indexOf("screenWidth: 1200") < 0,
+        "panel geometry harness uses its compositor screen instead of a synthetic initial width"
+    );
+    assert(
+        panelHarnessSource.indexOf(
+            'Quickshell.env("EPHEMERA_TEST_EXPECT_LAYER_SHELL") === "1"'
+        ) >= 0
+            && panelHarnessSource.indexOf(
+                "expectLayerShellSurface\n                && !nearlyEqual(panel.width, expectedSurfaceWidth)"
+            ) >= 0
+            && panelHarnessSource.indexOf(
+                "expectLayerShellSurface\n                    && !nearlyEqual(panel.mask.item.x, visualX)"
+            ) >= 0,
+        "actual surface width and mask position require layer-shell support"
+    );
+    assert(
+        qmlRunnerSource.indexOf("EPHEMERA_TEST_EXPECT_LAYER_SHELL=0") >= 0
+            && livePanelRunnerSource.indexOf(
+                "EPHEMERA_TEST_EXPECT_LAYER_SHELL=1"
+            ) >= 0,
+        "portable and live panel harnesses declare their layer-shell contract"
     );
 })();
 

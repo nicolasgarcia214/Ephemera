@@ -33,6 +33,7 @@ trap cleanup EXIT
 chmod 700 "$RUNTIME_DIR"
 
 SHIPPING_WAYLAND_SOCKET=""
+TEST_QT_QUICK_BACKEND=${QT_QUICK_BACKEND:-}
 if [ -n "$HOST_XDG_RUNTIME_DIR" ] && [ -n "$HOST_WAYLAND_DISPLAY" ] \
         && [ -S "$HOST_XDG_RUNTIME_DIR/$HOST_WAYLAND_DISPLAY" ]; then
     SHIPPING_WAYLAND_SOCKET="$HOST_XDG_RUNTIME_DIR/$HOST_WAYLAND_DISPLAY"
@@ -41,7 +42,8 @@ elif command -v weston >/dev/null 2>&1; then
     mkdir -p "$WESTON_RUNTIME"
     chmod 700 "$WESTON_RUNTIME"
     XDG_RUNTIME_DIR="$WESTON_RUNTIME" weston --backend=headless-backend.so \
-        --renderer=pixman --socket=ephemera-test --idle-time=0 \
+        --renderer=pixman --width=1200 --height=800 --no-config \
+        --socket=ephemera-test --idle-time=0 \
         --log="$RUNTIME_DIR/weston.log" >/dev/null 2>&1 &
     WESTON_PID=$!
     attempts=0
@@ -59,6 +61,9 @@ elif command -v weston >/dev/null 2>&1; then
         exit 1
     fi
     SHIPPING_WAYLAND_SOCKET="$WESTON_RUNTIME/ephemera-test"
+    # Pixman Weston exposes no EGL context. Force Qt Quick's software scene
+    # graph so animations and input-mask geometry still advance in headless CI.
+    TEST_QT_QUICK_BACKEND=software
 fi
 CONFIG_DIR="$RUNTIME_DIR/config"
 mkdir -p "$CONFIG_DIR/src/services" "$CONFIG_DIR/src/lib" \
@@ -242,6 +247,7 @@ run_harness() {
         EPHEMERA_TEST_NODE="$TEST_NODE" \
         EPHEMERA_TEST_RUNTIME_OVERRIDE="$TEST_RUNTIME_OVERRIDE" \
         EPHEMERA_KEYRING_TEST="$keyring_test" \
+        EPHEMERA_TEST_EXPECT_LAYER_SHELL=0 \
         NODE_OPTIONS="--require=/ephemera-must-clear.cjs" \
         NODE_PATH="/ephemera-must-clear" \
         NODE_TLS_REJECT_UNAUTHORIZED=0 \
@@ -255,6 +261,7 @@ run_harness() {
         XDG_RUNTIME_DIR="$harness_runtime" \
         WAYLAND_DISPLAY="$wayland_display" \
         QT_QPA_PLATFORM="$qpa_platform" \
+        QT_QUICK_BACKEND="$TEST_QT_QUICK_BACKEND" \
         DMS_DISABLE_LAYER=1 \
         QS_NO_RELOAD_POPUP=1 \
         timeout 12s qs -p "$CONFIG_DIR/$harness.qml" 2>&1) || {

@@ -8,6 +8,11 @@ ShellRoot {
     property int testStep: 0
     property int toggleCount: 0
     property bool finished: false
+    // Headless Weston has no layer-shell protocol. It can verify the QML
+    // geometry, but actual surface sizing and mask placement need a compositor
+    // that can create the production layer surface.
+    readonly property bool expectLayerShellSurface:
+        Quickshell.env("EPHEMERA_TEST_EXPECT_LAYER_SHELL") === "1"
 
     function finish(success, message) {
         if (finished) return;
@@ -37,10 +42,15 @@ ShellRoot {
             finish(false, label + ": preferred width or gap configuration changed");
             return false;
         }
-        if (!nearlyEqual(panel.width, expectedSurfaceWidth)
-                || !nearlyEqual(panel.implicitWidth, expectedSurfaceWidth)) {
-            finish(false, label + ": layer surface width was " + panel.width
-                   + ", expected " + expectedSurfaceWidth);
+        if (!nearlyEqual(panel.implicitWidth, expectedSurfaceWidth)) {
+            finish(false, label + ": implicit surface width was "
+                   + panel.implicitWidth + ", expected " + expectedSurfaceWidth);
+            return false;
+        }
+        if (expectLayerShellSurface
+                && !nearlyEqual(panel.width, expectedSurfaceWidth)) {
+            finish(false, label + ": layer-shell surface width was "
+                   + panel.width + ", expected " + expectedSurfaceWidth);
             return false;
         }
         if (!nearlyEqual(panel.alignedWidth, expectedSlideWidth)
@@ -52,9 +62,12 @@ ShellRoot {
         }
 
         var visualX = panel.panelOnLeft ? 0 : panel.width - panel.alignedWidth;
-        if (!nearlyEqual(panel.mask.item.x, visualX)
-                || !nearlyEqual(panel.mask.item.width, panel.alignedWidth)) {
-            finish(false, label + ": input mask diverged from the visible panel geometry");
+        if (!nearlyEqual(panel.mask.item.width, panel.alignedWidth)
+                || (expectLayerShellSurface
+                    && !nearlyEqual(panel.mask.item.x, visualX))) {
+            finish(false, label + ": input mask " + panel.mask.item.x + "/"
+                   + panel.mask.item.width + " diverged from visible geometry "
+                   + visualX + "/" + panel.alignedWidth);
             return false;
         }
         return true;
@@ -153,10 +166,10 @@ ShellRoot {
 
     EphemeraPanel {
         id: panel
+        modelData: Quickshell.screens.length > 0 ? Quickshell.screens[0] : null
         panelWidth: 480
         expandable: true
         expandedWidth: 960
         gap: 6
-        screenWidth: 1200
     }
 }
