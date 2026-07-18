@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 HOST_XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-}
 HOST_WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-}
 TEST_NODE=$(command -v node)

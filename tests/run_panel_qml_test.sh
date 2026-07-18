@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 RUNTIME_DIR=$(mktemp -d /tmp/ephemera-panel-qml-test.XXXXXX)
 trap 'rm -rf "$RUNTIME_DIR"' EXIT
 chmod 700 "$RUNTIME_DIR"
