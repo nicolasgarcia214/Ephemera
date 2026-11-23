@@ -81,7 +81,10 @@ Row {
 
                 Keys.onPressed: event => {
                     if (event.key === Qt.Key_Escape) {
-                        root.hideRequested();
+                        if (aiService.isStreaming)
+                            aiService.cancel();
+                        else
+                            root.hideRequested();
                         event.accepted = true;
                     } else if (event.key === Qt.Key_Return && !(event.modifiers & Qt.ShiftModifier)) {
                         root.requestSubmission();

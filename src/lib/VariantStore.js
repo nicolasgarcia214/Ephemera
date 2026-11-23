@@ -1,7 +1,8 @@
 .pragma library
 
 // Pure-function variant store operations.
-// The store is a plain JS object: { msgId: [ {content, thinking, modelName}, ... ] }
+// The store is a plain JS object:
+// { msgId: [ {content, thinking, modelName, errorText?}, ... ] }
 
 /**
  * Save or overwrite a variant at a specific index, enforcing a FIFO cap.
@@ -13,19 +14,21 @@
  * @param {Object} store - The variant store object (mutated in place).
  * @param {string} msgId - Message ID key.
  * @param {number} index - Variant index to write at.
- * @param {string} content - Response content text.
- * @param {string} thinking - Thinking/reasoning text.
- * @param {string} modelName - Model that generated this variant.
+ * @param {{content: string, thinking: string, modelName: string, errorText: string}} variant -
+ *     Response text, thinking, generating model, and the error a failed response ended with.
  * @param {number} maxVariants - Maximum variants to retain per message.
  * @returns {{ store: Object, evicted: number }} evicted: count of FIFO-evicted entries.
  */
-function saveVariant(store, msgId, index, content, thinking, modelName, maxVariants) {
+function saveVariant(store, msgId, index, variant, maxVariants) {
     if (!store[msgId]) store[msgId] = [];
-    store[msgId][index] = {
-        content: content || "",
-        thinking: thinking || "",
-        modelName: modelName || ""
+    var saved = {
+        content: variant.content || "",
+        thinking: variant.thinking || "",
+        modelName: variant.modelName || ""
     };
+    if (variant.errorText)
+        saved.errorText = variant.errorText;
+    store[msgId][index] = saved;
 
     var evicted = 0;
     while (store[msgId].length > maxVariants) {
@@ -41,12 +44,6 @@ function getVariant(store, msgId, index) {
     if (!store[msgId] || index >= store[msgId].length || !store[msgId][index])
         return null;
     return store[msgId][index];
-}
-
-// Remove all variants for a given message ID.
-function removeVariants(store, msgId) {
-    delete store[msgId];
-    return store;
 }
 
 /**

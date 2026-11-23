@@ -308,7 +308,9 @@ Item {
 
                 StyledText {
                     anchors.horizontalCenter: parent.horizontalCenter
-                    text: "Ask anything. Nothing is saved."
+                    text: aiService.persistChat
+                        ? "Ask anything. This chat is saved on this device."
+                        : "Ask anything. Nothing is saved."
                     font.pixelSize: Theme.fontSizeMedium
                     color: Theme.surfaceTextMedium
                     wrapMode: Text.Wrap

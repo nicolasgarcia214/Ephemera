@@ -289,6 +289,13 @@ section("StreamParser.parseDelta — Gemini");
     json = JSON.stringify({ candidates: [{ content: { parts: [{}] } }] });
     r = StreamParser.parseDelta(json, "gemini");
     assertEqual(r.content, "", "handles parts without text");
+
+    json = JSON.stringify({ candidates: [{ content: { parts: [
+        { text: "pondering", thought: true }, { text: "answer" }
+    ] } }] });
+    r = StreamParser.parseDelta(json, "gemini");
+    assertEqual(r.thinking, "pondering", "routes Gemini thought parts to thinking");
+    assertEqual(r.content, "answer", "keeps Gemini thought parts out of content");
 })();
 
 section("StreamParser.parseDelta — provider errors and refusals");
@@ -720,6 +727,12 @@ section("StreamParser.extractNonStreamingText — Gemini");
     ]);
     r = StreamParser.extractNonStreamingText(body, "gemini");
     assertEqual(r, "ab", "handles array-wrapped Gemini response");
+
+    body = JSON.stringify({ candidates: [{ content: { parts: [
+        { text: "pondering", thought: true }, { text: "answer" }
+    ] } }] });
+    r = StreamParser.extractNonStreamingText(body, "gemini");
+    assertEqual(r, "answer", "excludes Gemini thought parts from non-streaming text");
 })();
 
 // ═════════════════════════════════════════════════════════════════
@@ -939,6 +952,8 @@ section("Providers.buildCurlCommand");
         "-q is the first curl option so user curlrc is ignored before stdin config");
     assert(r.cmd.indexOf("-K") >= 0, "uses -K flag for config-from-stdin");
     assert(r.cmd.indexOf("--max-time") >= 0, "includes timeout");
+    assertEqual(r.cmd[r.cmd.indexOf("--max-filesize") + 1], "5242880",
+        "caps response bytes at the stdout buffer limit");
     assertEqual(r.cmd[r.cmd.indexOf("--proto") + 1], "=http,https",
         "curl allows only HTTP and HTTPS request protocols");
     assertEqual(r.cmd[r.cmd.indexOf("--proto-redir") + 1], "=http,https",
@@ -1053,6 +1068,8 @@ section("Providers.buildCurlCommand");
     payload.model = "gpt-5";
     r = Providers.buildCurlCommand("openai", payload, "sk-test123");
     body = parseCurlConfigBody(r.body);
+    assertEqual(body.max_completion_tokens, 4096, "OpenAI GPT-5 uses max_completion_tokens");
+    assertEqual(body.max_tokens, undefined, "OpenAI GPT-5 omits deprecated max_tokens");
     assertEqual(body.temperature, undefined,
         "older OpenAI GPT-5 models omit unsupported temperature");
     assertEqual(Providers.clampTemperature("openai", "gpt-5-mini", 0.7),
@@ -1172,6 +1189,22 @@ section("Providers.buildCurlCommand");
     assert(r.body.indexOf("streamGenerateContent") >= 0, "uses streaming endpoint");
     assert(r.body.indexOf("alt=sse") >= 0, "requests SSE format");
     assert(r.cmd.join(" ").indexOf("x-goog-api-key") < 0, "Gemini key NOT in cmd args");
+    body = parseCurlConfigBody(r.body);
+    assertEqual(body.generationConfig.thinkingConfig, undefined,
+        "Gemini omits thinkingConfig when thinking is disabled");
+    payload.thinkingEnabled = true;
+    r = Providers.buildCurlCommand("gemini", payload, "gemini-key");
+    body = parseCurlConfigBody(r.body);
+    assertEqual(JSON.stringify(body.generationConfig.thinkingConfig),
+        JSON.stringify({ includeThoughts: true }),
+        "Gemini requests thought summaries when thinking is enabled");
+    payload.thinkingEnabled = false;
+    var savedGeminiModel = payload.model;
+    payload.model = "";
+    r = Providers.buildCurlCommand("gemini", payload, "gemini-key");
+    assert(r.body.indexOf("/models/gemini-3.8-flash:streamGenerateContent") >= 0,
+        "Gemini falls back to gemini-3.8-flash when no model is set");
+    payload.model = savedGeminiModel;
 
     // Custom provider uses the OpenAI-compatible request shape over HTTPS
     payload.provider = "custom";
@@ -1400,8 +1433,28 @@ section("Markdown.markdownToHtml — bold/italic/strikethrough");
     r = Markdown.markdownToHtml("_italic_");
     assert(r.indexOf("<i>italic</i>") >= 0, "italic with _");
 
+    r = Markdown.markdownToHtml("snake_case and other_name");
+    assert(r.indexOf("<i>") < 0, "intraword underscores do not italicise");
+    assert(r.indexOf("snake_case and other_name") >= 0, "snake_case text preserved");
+
+    r = Markdown.markdownToHtml("my__dunder__name and (_x_)");
+    assert(r.indexOf("<b>") < 0, "intraword double underscores do not bold");
+    assert(r.indexOf("(<i>x</i>)") >= 0, "underscore emphasis next to punctuation");
+
     r = Markdown.markdownToHtml("~~strikethrough~~");
     assert(r.indexOf("<s>strikethrough</s>") >= 0, "strikethrough");
+
+    r = Markdown.markdownToHtml("**https://example.com** and ~~https://x.com~~.");
+    assert(r.indexOf('<b><a href="https://example.com">https://example.com</a></b>') >= 0,
+        "auto-link stops before closing bold markers");
+    assert(r.indexOf('<s><a href="https://x.com">https://x.com</a></s>.') >= 0,
+        "auto-link stops before strikethrough markers and punctuation");
+
+    r = Markdown.markdownToHtml("(https://a.com/b) https://en.wikipedia.org/wiki/Foo_(bar)");
+    assert(r.indexOf('(<a href="https://a.com/b">https://a.com/b</a>)') >= 0,
+        "auto-link leaves an enclosing parenthesis outside");
+    assert(r.indexOf('href="https://en.wikipedia.org/wiki/Foo_(bar)"') >= 0,
+        "auto-link keeps a balanced parenthesis inside the URL");
 })();
 
 section("Markdown.markdownToHtml — code blocks");
@@ -1437,6 +1490,32 @@ section("Markdown.markdownToHtml — links");
     // Auto-linking
     r = Markdown.markdownToHtml("Visit https://example.com for info");
     assert(r.indexOf("href=") >= 0, "auto-linked URL");
+
+    // Each part of a link is escaped exactly once
+    r = Markdown.markdownToHtml("[q&a](https://a.com/?a=1&b=2)");
+    assert(r.indexOf('<a href="https://a.com/?a=1&amp;b=2">q&amp;a</a>') >= 0,
+        "link text and href escape & exactly once");
+    assert(r.indexOf("&amp;amp;") < 0, "link is not double-escaped");
+    r = Markdown.markdownToHtml('[<x>"](https://a.com/"<)');
+    assert(r.indexOf('<a href="https://a.com/&quot;&lt;">&lt;x&gt;"</a>') >= 0,
+        "link escapes < once and \" inside href");
+    r = Markdown.markdownToHtml("See https://a.com/?a=1&b=2");
+    assert(r.indexOf('<a href="https://a.com/?a=1&amp;b=2">https://a.com/?a=1&amp;b=2</a>') >= 0,
+        "auto-link escapes & exactly once");
+    r = Markdown.markdownToHtml('See https://a.com/"x');
+    assert(r.indexOf('href="https://a.com/&quot;x"') >= 0, "auto-link escapes \" inside href");
+
+    // Underscores inside URLs are not emphasis
+    r = Markdown.markdownToHtml("See https://x.com/foo_bar_baz now");
+    assert(r.indexOf('<a href="https://x.com/foo_bar_baz">https://x.com/foo_bar_baz</a>') >= 0,
+        "auto-linked URL with underscores stays intact");
+    r = Markdown.markdownToHtml("[docs](https://x.com/foo_bar_baz) and _x_");
+    assert(r.indexOf('<a href="https://x.com/foo_bar_baz">docs</a>') >= 0,
+        "markdown link URL with underscores stays intact");
+    assert(r.indexOf("<i>x</i>") >= 0, "emphasis still applies outside the link");
+    r = Markdown.markdownToHtml("[_docs_](https://x.com/a)");
+    assert(r.indexOf('<a href="https://x.com/a"><i>docs</i></a>') >= 0,
+        "link text keeps inline formatting");
 })();
 
 section("Markdown.markdownToHtml — XSS prevention");
@@ -2175,6 +2254,65 @@ section("ChatPersistence exact bounds");
         "records that the saved chat was trimmed");
 })();
 
+section("ChatPersistence error text");
+
+(function() {
+    var messages = persistedTurns(2, "partial answer");
+    messages[1].status = "error";
+    messages[1].errorText = "Request timed out.\nThe provider took too long to respond.";
+    messages[3].errorText = "";
+    var prepared = ChatPersistence.createSnapshot(messages, {}, 1);
+    assert(prepared !== null, "accepts a failed response carrying partial content and error text");
+    assertEqual(prepared.payload.messages[1].content, "partial answer",
+        "keeps partial content separate from the error");
+    assertEqual(prepared.payload.messages[1].errorText, messages[1].errorText,
+        "persists the error text of a failed response");
+    assert(!Object.prototype.hasOwnProperty.call(prepared.payload.messages[3], "errorText"),
+        "omits empty error text from successful responses");
+
+    messages[3].errorText = "stale";
+    prepared = ChatPersistence.prepareState({ version: 1, messages: messages, variants: {} }, 1);
+    assert(!Object.prototype.hasOwnProperty.call(prepared.payload.messages[3], "errorText")
+            && prepared.changed === true,
+        "drops error text from a non-error message and marks the state for rewrite");
+
+    messages[1].errorText = 42;
+    assertEqual(ChatPersistence.prepareState({ version: 1, messages: messages, variants: {} }, 1),
+        null, "rejects non-string error text");
+})();
+
+(function() {
+    // A failed first variant followed by a successful regeneration.
+    var messages = persistedTurns(1, "second answer");
+    var id = messages[1].id;
+    messages[1].variantIndex = 1;
+    messages[1].variantCount = 2;
+    var variants = {};
+    variants[id] = [
+        { content: "", thinking: "", modelName: "", errorText: "Connection refused" },
+        { content: "second answer", thinking: "", modelName: "" }
+    ];
+    var prepared = ChatPersistence.createSnapshot(messages, variants, 1);
+    assert(prepared !== null, "accepts error text on a stored variant");
+    assertEqual(prepared.payload.variants[id][0].errorText, "Connection refused",
+        "persists the error a failed variant ended with");
+    assert(!Object.prototype.hasOwnProperty.call(prepared.payload.variants[id][1], "errorText"),
+        "successful variant carries no error text");
+
+    // Selecting the failed variant on load restores its error state.
+    messages[1].variantIndex = 0;
+    messages[1].content = "stale";
+    prepared = ChatPersistence.prepareState({ version: 1, messages: messages, variants: variants }, 1);
+    assertEqual(prepared.payload.messages[1].status, "error",
+        "selected failed variant restores error status");
+    assertEqual(prepared.payload.messages[1].errorText, "Connection refused",
+        "selected failed variant restores its error text");
+
+    variants[id][0].errorText = 7;
+    assertEqual(ChatPersistence.prepareState({ version: 1, messages: messages, variants: variants }, 1),
+        null, "rejects non-string variant error text");
+})();
+
 section("ChatPersistence deterministic pruning and variants");
 
 (function() {
@@ -2330,18 +2468,21 @@ section("VariantStore.saveVariant");
 
 (function() {
     var store = {};
-    var result = VariantStore.saveVariant(store, "msg1", 0, "hello", "thinking", "gpt-4", 10);
+    var result = VariantStore.saveVariant(store, "msg1", 0, {content: "hello", thinking: "thinking", modelName: "gpt-4"}, 10);
     assertEqual(result.evicted, 0, "no eviction on first save");
     assertEqual(result.store["msg1"][0].content, "hello", "content saved");
     assertEqual(result.store["msg1"][0].thinking, "thinking", "thinking saved");
     assertEqual(result.store["msg1"][0].modelName, "gpt-4", "modelName saved");
+    assertEqual(result.store["msg1"][0].errorText, undefined, "successful variant carries no error");
+    VariantStore.saveVariant(store, "msg1", 1, {content: "", errorText: "Request timed out."}, 10);
+    assertEqual(store["msg1"][1].errorText, "Request timed out.", "failed variant keeps its error");
 })();
 
 (function() {
     var store = {};
     var idx = 0;
     for (var i = 0; i < 12; i++) {
-        var result = VariantStore.saveVariant(store, "msg1", idx, "v" + i, "", "m" + i, 10);
+        var result = VariantStore.saveVariant(store, "msg1", idx, {content: "v" + i, thinking: "", modelName: "m" + i}, 10);
         idx = Math.max(0, idx - result.evicted) + 1;
     }
     assertEqual(store["msg1"].length, 10, "capped at maxVariants");
@@ -2350,9 +2491,9 @@ section("VariantStore.saveVariant");
 
 (function() {
     var store = {};
-    VariantStore.saveVariant(store, "msg1", 0, "a", "", "", 10);
-    VariantStore.saveVariant(store, "msg1", 1, "b", "", "", 10);
-    var result = VariantStore.saveVariant(store, "msg1", 0, "updated", "", "", 10);
+    VariantStore.saveVariant(store, "msg1", 0, {content: "a", thinking: "", modelName: ""}, 10);
+    VariantStore.saveVariant(store, "msg1", 1, {content: "b", thinking: "", modelName: ""}, 10);
+    var result = VariantStore.saveVariant(store, "msg1", 0, {content: "updated", thinking: "", modelName: ""}, 10);
     assertEqual(result.store["msg1"][0].content, "updated", "overwrite existing variant");
     assertEqual(result.evicted, 0, "no eviction on overwrite");
 })();
@@ -2361,7 +2502,7 @@ section("VariantStore.getVariant");
 
 (function() {
     var store = {};
-    VariantStore.saveVariant(store, "msg1", 0, "content", "think", "model", 10);
+    VariantStore.saveVariant(store, "msg1", 0, {content: "content", thinking: "think", modelName: "model"}, 10);
     var v = VariantStore.getVariant(store, "msg1", 0);
     assertEqual(v.content, "content", "gets correct variant");
     assertEqual(v.thinking, "think", "gets thinking");
@@ -2372,17 +2513,6 @@ section("VariantStore.getVariant");
 
     var missingMsg = VariantStore.getVariant(store, "noMsg", 0);
     assertEqual(missingMsg, null, "returns null for missing msgId");
-})();
-
-section("VariantStore.removeVariants");
-
-(function() {
-    var store = {};
-    VariantStore.saveVariant(store, "msg1", 0, "a", "", "", 10);
-    VariantStore.saveVariant(store, "msg2", 0, "b", "", "", 10);
-    VariantStore.removeVariants(store, "msg1");
-    assertEqual(store["msg1"], undefined, "removes variants for msgId");
-    assertEqual(store["msg2"][0].content, "b", "preserves other messages");
 })();
 
 section("VariantStore.adjustAfterEviction");
@@ -2643,18 +2773,6 @@ section("Backoff.isInCooldown");
     assert(!Backoff.isInCooldown(Date.now() - 1000), "not in cooldown when cooldownUntil is in the past");
 })();
 
-section("Backoff.maxDelayForAttempt");
-
-(function() {
-    assertEqual(Backoff.maxDelayForAttempt(0), 0, "0 errors = 0 delay");
-    assertEqual(Backoff.maxDelayForAttempt(1, 2000, 30000), 2000, "1 error = base delay");
-    assertEqual(Backoff.maxDelayForAttempt(2, 2000, 30000), 4000, "2 errors = 2x base");
-    assertEqual(Backoff.maxDelayForAttempt(3, 2000, 30000), 8000, "3 errors = 4x base");
-    assertEqual(Backoff.maxDelayForAttempt(4, 2000, 30000), 16000, "4 errors = 8x base");
-    assertEqual(Backoff.maxDelayForAttempt(5, 2000, 30000), 30000, "5 errors = capped at max");
-    assertEqual(Backoff.maxDelayForAttempt(10, 2000, 30000), 30000, "10 errors = still capped");
-})();
-
 // ═════════════════════════════════════════════════════════════════
 // Providers.getModelList tests
 // ═════════════════════════════════════════════════════════════════
@@ -2680,13 +2798,13 @@ section("Providers.getModelList");
     var gemini = Providers.getModelList("gemini");
     assert(Array.isArray(gemini), "gemini returns an array");
     assert(gemini.length > 0, "gemini has models");
-    assert(gemini.indexOf("gemini-3.5-flash") >= 0,
-        "gemini includes the current stable Gemini 3.5 Flash model");
-    assert(gemini.indexOf("gemini-3-flash-preview") < 0,
-        "gemini excludes the superseded Gemini 3 Flash preview");
-    assert(gemini.indexOf("gemini-2.5-flash") >= 0, "gemini includes gemini-2.5-flash");
-    assert(gemini.indexOf("gemini-3.1-flash-lite") >= 0, "gemini includes Flash-Lite GA replacement");
-    assert(gemini.indexOf("gemini-3.1-flash-lite-preview") < 0, "gemini excludes shut-down Flash-Lite preview");
+    assertEqual(JSON.stringify(gemini), JSON.stringify([
+        "gemini-4-hydrogen", "gemini-4-neon", "gemini-4-carbon",
+        "gemini-4-argon", "gemini-3.8-flash", "gemini-3.6-flash",
+        "gemini-3.5-flash-lite", "gemini-3.1-pro-preview"
+    ]), "gemini lists current models in order, excluding retired 2.5 and 3.5 Flash");
+    assertEqual(Providers.getProviderInfo("gemini").modelPlaceholder, "gemini-3.8-flash",
+        "gemini placeholder is gemini-3.8-flash");
 
     var ollama = Providers.getModelList("ollama");
     assert(Array.isArray(ollama), "ollama returns an array");
@@ -2966,6 +3084,10 @@ section("Ollama endpoint coordinator wiring");
         settingsSource.indexOf("aiService.ollamaUrl = url") < 0,
         "provider settings do not directly mutate the Ollama discovery identity"
     );
+    assert(
+        settingsSource.indexOf('show: aiService.provider === "anthropic" || aiService.provider === "gemini"') >= 0,
+        "provider settings show the Extended Thinking toggle for Anthropic and Gemini"
+    );
 })();
 
 section("Ollama probe response limits");
@@ -3168,6 +3290,41 @@ section("EphemeraDaemon DMS injected properties");
     assert(
         /EphemeraService\s*\{[\s\S]*?pluginId\s*:\s*root\.pluginId\b/.test(daemonSource),
         "coordinator receives the DMS-injected pluginId"
+    );
+    assert(
+        /function toggle\(\)[\s\S]*?_togglePanels\(variants\.instances,\s*CompositorService\.getFocusedScreenName\(\)\)/
+            .test(daemonSource)
+            && daemonSource.indexOf("variants.instances[0]") < 0,
+        "IPC toggle targets the focused screen's panel, not always the first"
+    );
+})();
+
+section("Keyboard safety and empty-state honesty");
+
+(function() {
+    function read(rel) {
+        return fs.readFileSync(path.join(__dirname, "..", rel), "utf8");
+    }
+    var dialogSource = read("src/components/ClearChatDialog.qml");
+    var composerSource = read("src/components/ChatComposer.qml");
+    var chatSource = read("src/components/EphemeraChat.qml");
+
+    assert(
+        dialogSource.indexOf("onOpened: cancelBtn.forceActiveFocus()") >= 0
+            && /id: cancelBtn\s+text: "Cancel"\s+focus: true/.test(dialogSource)
+            && !/id: clearConfirmBtn[\s\S]*?focus: true/.test(dialogSource),
+        "clear dialog defaults focus to Cancel, so Ctrl+L then Enter keeps the chat"
+    );
+    assert(
+        /event\.key === Qt\.Key_Escape\) \{\s+if \(aiService\.isStreaming\)\s+aiService\.cancel\(\);\s+else\s+root\.hideRequested\(\);/
+            .test(composerSource),
+        "Escape stops an active stream and hides the panel only when idle"
+    );
+    assert(
+        /text: aiService\.persistChat\s+\? "[^"]*saved[^"]*"\s+: "Ask anything\. Nothing is saved\."/
+            .test(chatSource)
+            && chatSource.indexOf("This chat is saved") >= 0,
+        "empty state claims nothing is saved only when persistence is off"
     );
 })();
 

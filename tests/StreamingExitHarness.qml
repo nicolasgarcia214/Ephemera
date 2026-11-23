@@ -54,7 +54,7 @@ ShellRoot {
                 root.finish(false, "nonzero exit was not authoritative");
                 return;
             }
-            root.finish(true, "partial HTTP 200 output followed by exit 28 failed once without finalization");
+            root.finish(true, "partial HTTP 200 output followed by exit 28 failed once, kept partial output, and did not finalize");
         }
     }
 
@@ -62,11 +62,15 @@ ShellRoot {
         id: streaming
         provider: "openai"
 
-        onStreamError: (streamId, message) => {
+        onStreamError: (streamId, message, result) => {
             root.errorCount++;
             if (streamId !== "partial-timeout"
                     || message.toLowerCase().indexOf("timed out") < 0) {
                 root.finish(false, "unexpected error result: " + streamId + ": " + message);
+                return;
+            }
+            if (result.content !== "partial") {
+                root.finish(false, "error discarded partial output: " + JSON.stringify(result.content));
                 return;
             }
             lifecycleCheck.restart();

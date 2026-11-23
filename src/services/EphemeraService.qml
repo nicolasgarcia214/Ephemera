@@ -269,11 +269,6 @@ Item {
         return info.envVar || "EPHEMERA_API_KEY";
     }
 
-    function _providerDisplayName(prov) {
-        var info = Providers.getProviderInfo(prov);
-        return info.name || "custom provider";
-    }
-
     // ─── Ollama facade ──────────────────────────────────────────────
 
     function shutdownOllama() { ollamaManager.shutdown(); }
@@ -321,21 +316,15 @@ Item {
         thinkingEnabled = PluginService.loadPluginData(pluginId, "thinkingEnabled", false) === true;
         panelOnLeft = PluginService.loadPluginData(pluginId, "panelOnLeft", false) === true;
         mcpEnabled = PluginService.loadPluginData(pluginId, "mcpEnabled", false) === true;
-        mcpAllowToolRequests = PluginService.loadPluginData(pluginId, "mcpToolRequestsAllowed", PluginService.loadPluginData(pluginId, "mcpAutoExecuteTools", false)) === true;
-        mcpToolRequestsTrustKey = String(PluginService.loadPluginData(pluginId, "mcpToolRequestsTrustKey", PluginService.loadPluginData(pluginId, "mcpAutoExecuteTrustKey", "")));
+        mcpAllowToolRequests = PluginService.loadPluginData(pluginId, "mcpToolRequestsAllowed", false) === true;
+        mcpToolRequestsTrustKey = String(PluginService.loadPluginData(pluginId, "mcpToolRequestsTrustKey", ""));
         mcpUrl = String(PluginService.loadPluginData(pluginId, "mcpUrl", "")).trim();
         mcpAllowInsecureHttp = PluginService.loadPluginData(pluginId, "mcpAllowInsecureHttp", false) === true;
         mcpInsecureHttpTrustKey = String(PluginService.loadPluginData(pluginId, "mcpInsecureHttpTrustKey", ""));
         mcpApprovedToolContracts = Mcp.normalizeToolApprovalKeys(PluginService.loadPluginData(
-            pluginId,
-            "mcpApprovedToolContracts",
-            PluginService.loadPluginData(pluginId, "mcpAllowedTools", "[]")
-        ));
+            pluginId, "mcpApprovedToolContracts", "[]"));
         mcpApprovedToolsTrustKey = String(PluginService.loadPluginData(
-            pluginId,
-            "mcpApprovedToolsTrustKey",
-            PluginService.loadPluginData(pluginId, "mcpAllowedToolsTrustKey", "")
-        ));
+            pluginId, "mcpApprovedToolsTrustKey", ""));
         var legacyMcpToken = String(PluginService.loadPluginData(pluginId, "mcpToken", ""));
         if (legacyMcpToken)
             PluginService.savePluginData(pluginId, "mcpToken", "");
@@ -599,7 +588,7 @@ Item {
                 role: m.role, content: m.content, thinking: m.thinking || "",
                 id: m.id, timestamp: m.timestamp, status: m.status || "ok",
                 variantIndex: m.variantIndex || 0, variantCount: m.variantCount || 1,
-                modelName: m.modelName || ""
+                modelName: m.modelName || "", errorText: m.errorText || ""
             });
         }
         msgs.reverse();
@@ -635,6 +624,7 @@ Item {
             entry.thinking = m.thinking;
             entry.variantIndex = m.variantIndex;
             entry.variantCount = m.variantCount;
+            entry.errorText = m.errorText || "";
             entries.push(entry);
             indexMap[m.id] = i;
             if (m.role === "user") lastUser = m.content;
@@ -736,7 +726,8 @@ Item {
         if (last.role !== "assistant") return;
 
         var msgId = last.id;
-        _saveVariant(msgId, last.variantIndex, last.content, last.thinking, last.modelName);
+        _saveVariant(msgId, last.variantIndex, last.content, last.thinking, last.modelName,
+                     last.status === "error" ? last.errorText : "");
 
         var newCount = last.variantCount + 1;
         var newIndex = newCount - 1;
@@ -744,6 +735,7 @@ Item {
         messagesModel.setProperty(lastIdx, "variantIndex", newIndex);
         messagesModel.setProperty(lastIdx, "content", "");
         messagesModel.setProperty(lastIdx, "thinking", "");
+        messagesModel.setProperty(lastIdx, "errorText", "");
         messagesModel.setProperty(lastIdx, "status", "streaming");
         messagesModel.setProperty(lastIdx, "modelName", model);
 
@@ -812,8 +804,8 @@ Item {
         messagesModel.setProperty(idx, "variantIndex", newIndex);
         if (variant.modelName)
             messagesModel.setProperty(idx, "modelName", variant.modelName);
-        if (isStreaming && activeStreamId === msgId)
-            messagesModel.setProperty(idx, "status", "ok");
+        messagesModel.setProperty(idx, "errorText", variant.errorText || "");
+        messagesModel.setProperty(idx, "status", variant.errorText ? "error" : "ok");
     }
 
     // ─── Export ─────────────────────────────────────────────────────
@@ -822,7 +814,7 @@ Item {
         var msgs = [];
         for (var i = 0; i < messagesModel.count; i++) {
             var m = messagesModel.get(i);
-            msgs.push({ role: m.role, content: m.content });
+            msgs.push({ role: m.role, content: _messageExportText(m) });
         }
         return ChatExport.buildMarkdown(msgs);
     }
@@ -853,7 +845,15 @@ Item {
         _messageCopyFeedbackId = msgId;
         _setMessageCopyStatus(msgId, "pending");
         return exportService.copyMessageToClipboard(
-            msgId, messagesModel.get(idx).content || "");
+            msgId, _messageExportText(messagesModel.get(idx)));
+    }
+
+    // A failed response exports its partial text followed by the error.
+    function _messageExportText(m) {
+        var content = m.content || "";
+        if (m.status !== "error" || !m.errorText)
+            return content;
+        return content ? content + "\n\n> Error: " + m.errorText : "> Error: " + m.errorText;
     }
 
     function _finishMessageCopy(msgId, succeeded, message) {
@@ -888,7 +888,7 @@ Item {
             id: id, timestamp: timestamp, status: status || "ok",
             variantIndex: 0, variantCount: 1,
             modelName: modelName || "", streamStats: "", requestPayload: "",
-            copyStatus: ""
+            copyStatus: "", errorText: ""
         };
     }
 
@@ -901,18 +901,6 @@ Item {
 
     function findIndexById(msgId) {
         return messageIndexMap[msgId] !== undefined ? messageIndexMap[msgId] : -1;
-    }
-
-    function getMessageContentById(msgId) {
-        var idx = findIndexById(msgId);
-        if (idx >= 0) return messagesModel.get(idx).content || "";
-        return "";
-    }
-
-    function setMessageContentById(msgId, text) {
-        var idx = findIndexById(msgId);
-        if (idx >= 0)
-            messagesModel.setProperty(idx, "content", text || "");
     }
 
     // ─── Internal: streaming orchestration ─────────────────────────
@@ -1156,7 +1144,8 @@ Item {
             ? _activeRequestSnapshot.provider : provider;
         var idx = findIndexById(streamId);
         if (idx >= 0) {
-            _saveVariant(streamId, result.variantIndex, result.content, result.thinking, requestModel);
+            _saveVariant(streamId, result.variantIndex, result.content, result.thinking, requestModel,
+                         "");
             var msg = messagesModel.get(idx);
             if (msg.variantIndex === result.variantIndex) {
                 messagesModel.setProperty(idx, "content", result.content);
@@ -1174,11 +1163,18 @@ Item {
         var requestModel = _requestModelForStream(streamId);
         var idx = findIndexById(streamId);
         if (idx >= 0) {
-            _saveVariant(streamId, result.variantIndex, message, result.thinking, requestModel);
+            _saveVariant(streamId, result.variantIndex, result.content, result.thinking, requestModel,
+                         message);
             var msg = messagesModel.get(idx);
-            if (msg.variantIndex === result.variantIndex)
-                messagesModel.setProperty(idx, "content", message);
-            messagesModel.setProperty(idx, "status", "error");
+            if (msg.variantIndex === result.variantIndex) {
+                messagesModel.setProperty(idx, "content", result.content);
+                messagesModel.setProperty(idx, "thinking", result.thinking);
+            }
+            // The banner belongs to whichever variant is on screen.
+            var shown = VariantStore.getVariant(variantStore, streamId, msg.variantIndex);
+            var shownError = shown ? (shown.errorText || "") : message;
+            messagesModel.setProperty(idx, "errorText", shownError);
+            messagesModel.setProperty(idx, "status", shownError ? "error" : "ok");
         }
         _clearRequestSnapshot(streamId);
     }
@@ -1187,7 +1183,8 @@ Item {
         var requestModel = _requestModelForStream(streamId);
         var idx = findIndexById(streamId);
         if (idx >= 0) {
-            _saveVariant(streamId, result.variantIndex, result.content, result.thinking, requestModel);
+            _saveVariant(streamId, result.variantIndex, result.content, result.thinking, requestModel,
+                         "");
             var msg = messagesModel.get(idx);
             if (msg.variantIndex === result.variantIndex) {
                 messagesModel.setProperty(idx, "content", result.content);
@@ -1200,9 +1197,12 @@ Item {
         _clearRequestSnapshot(streamId);
     }
 
-    function _saveVariant(msgId, index, content, thinking, variantModel) {
+    function _saveVariant(msgId, index, content, thinking, variantModel, errorText) {
         var store = JSON.parse(JSON.stringify(variantStore));
-        var result = VariantStore.saveVariant(store, msgId, index, content, thinking, variantModel, maxVariantsPerMessage);
+        var result = VariantStore.saveVariant(store, msgId, index, {
+            content: content, thinking: thinking,
+            modelName: variantModel, errorText: errorText
+        }, maxVariantsPerMessage);
 
         if (result.evicted > 0) {
             var storeLen = store[msgId].length;

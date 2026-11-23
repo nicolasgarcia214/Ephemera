@@ -92,6 +92,7 @@ ShellRoot {
                 pollTimer.start();
                 return;
             }
+            if (!checkIdleTimeoutDuringStream()) return;
             phase = "owned-endpoint-change";
             manager.ollamaUrl = "http://127.0.0.1:11434";
             if (!check(manager.ollamaWeStarted,
@@ -110,6 +111,33 @@ ShellRoot {
             manager.active = false;
             settleTimer.restart();
         }
+    }
+
+    function idleTimer() {
+        for (var i = 0; i < manager.resources.length; i++) {
+            var child = manager.resources[i];
+            if (child.hasOwnProperty("interval")
+                    && child.interval === manager.ollamaIdleMinutes * 60 * 1000)
+                return child;
+        }
+        return null;
+    }
+
+    // An idle timeout during a stream (or MCP approval pause) must re-arm,
+    // not silently expire and leave the owned server running forever.
+    function checkIdleTimeoutDuringStream() {
+        var timer = idleTimer();
+        if (!check(timer !== null, "Ollama idle timer not found")) return false;
+        manager.isStreaming = true;
+        manager.scheduleIdleShutdown();
+        manager._handleIdleTimeout();
+        var ok = check(manager.ollamaWeStarted,
+                "idle timeout shut down Ollama during an active stream")
+            && check(timer.running,
+                "idle timeout during an active stream was not re-armed");
+        manager.stopIdleTimer();
+        manager.isStreaming = false;
+        return ok;
     }
 
     function verifyEventOrder() {

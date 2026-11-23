@@ -99,11 +99,12 @@ function _messageKeyAllowed(key) {
         || key === "id" || key === "timestamp" || key === "status"
         || key === "variantIndex" || key === "variantCount"
         || key === "modelName" || key === "streamStats"
-        || key === "requestPayload";
+        || key === "requestPayload" || key === "errorText";
 }
 
 function _variantKeyAllowed(key) {
-    return key === "content" || key === "thinking" || key === "modelName";
+    return key === "content" || key === "thinking" || key === "modelName"
+        || key === "errorText";
 }
 
 function _keysAllowed(object, allowed, maximum) {
@@ -132,7 +133,7 @@ function _validateStructure(payload, version) {
     var previousRole = "";
     for (var i = 0; i < payload.messages.length; i++) {
         var message = payload.messages[i];
-        if (!_isObject(message) || !_keysAllowed(message, _messageKeyAllowed, 11)
+        if (!_isObject(message) || !_keysAllowed(message, _messageKeyAllowed, 12)
                 || (message.role !== "user" && message.role !== "assistant")
                 || (message.role === "assistant" && previousRole !== "user")
                 || typeof message.content !== "string"
@@ -146,7 +147,9 @@ function _validateStructure(payload, version) {
                 || (message.streamStats !== undefined
                     && typeof message.streamStats !== "string")
                 || (message.requestPayload !== undefined
-                    && typeof message.requestPayload !== "string"))
+                    && typeof message.requestPayload !== "string")
+                || (message.errorText !== undefined
+                    && typeof message.errorText !== "string"))
             return false;
 
         var status = message.status === undefined ? "ok" : message.status;
@@ -178,12 +181,14 @@ function _validateStructure(payload, version) {
         for (var j = 0; j < values.length; j++) {
             var variant = values[j];
             if (!_isObject(variant)
-                    || !_keysAllowed(variant, _variantKeyAllowed, 3)
+                    || !_keysAllowed(variant, _variantKeyAllowed, 4)
                     || typeof variant.content !== "string"
                     || (variant.thinking !== undefined
                         && typeof variant.thinking !== "string")
                     || (variant.modelName !== undefined
-                        && typeof variant.modelName !== "string"))
+                        && typeof variant.modelName !== "string")
+                    || (variant.errorText !== undefined
+                        && typeof variant.errorText !== "string"))
                 return false;
         }
     }
@@ -224,6 +229,12 @@ function _sanitizeMessage(message, result) {
         modelName: _sanitizeText(
             message.modelName || "", maxModelBytes, result, false)
     };
+    // Only failed responses carry an error, kept apart from partial content.
+    if (status === "error" && message.errorText)
+        normalized.errorText = _sanitizeText(
+            message.errorText, maxContentBytes, result, true);
+    else if (message.errorText)
+        result.changed = true;
     if (message.status === undefined || message.thinking === undefined
             || message.variantIndex === undefined
             || message.variantCount === undefined
@@ -249,14 +260,20 @@ function _sanitizeVariants(message, rawVariants, result) {
     if (start > 0) result.changed = true;
     var variants = [];
     for (var i = start; i < source.length; i++) {
-        variants.push({
+        var variant = {
             content: _sanitizeText(
                 source[i].content, maxContentBytes, result, true),
             thinking: _sanitizeText(source[i].thinking || "",
                                     maxThinkingBytes, result, true),
             modelName: _sanitizeText(source[i].modelName || "",
                                      maxModelBytes, result, false)
-        });
+        };
+        if (source[i].errorText)
+            variant.errorText = _sanitizeText(
+                source[i].errorText, maxContentBytes, result, true);
+        else if (_hasOwn(source[i], "errorText"))
+            result.changed = true;
+        variants.push(variant);
         if (source[i].thinking === undefined
                 || source[i].modelName === undefined)
             result.changed = true;
@@ -271,9 +288,7 @@ function _sanitizeVariants(message, rawVariants, result) {
     } else if (adjustedIndex < 0 || adjustedIndex >= variants.length) {
         message.variantIndex = 0;
         message.variantCount = variants.length;
-        message.content = variants[0].content;
-        message.thinking = variants[0].thinking;
-        message.modelName = variants[0].modelName;
+        _showVariant(message, variants[0]);
         result.changed = true;
     } else {
         if (message.variantIndex !== adjustedIndex
@@ -284,14 +299,27 @@ function _sanitizeVariants(message, rawVariants, result) {
         var selected = variants[adjustedIndex];
         if (message.content !== selected.content
                 || message.thinking !== selected.thinking
-                || message.modelName !== selected.modelName) {
-            message.content = selected.content;
-            message.thinking = selected.thinking;
-            message.modelName = selected.modelName;
+                || message.modelName !== selected.modelName
+                || (message.errorText || "") !== (selected.errorText || "")) {
+            _showVariant(message, selected);
             result.changed = true;
         }
     }
     return variants;
+}
+
+// Make a message display a stored variant, including the error it failed with.
+function _showVariant(message, variant) {
+    message.content = variant.content;
+    message.thinking = variant.thinking;
+    message.modelName = variant.modelName;
+    if (variant.errorText) {
+        message.status = "error";
+        message.errorText = variant.errorText;
+    } else {
+        if (message.status === "error") message.status = "ok";
+        delete message.errorText;
+    }
 }
 
 function _buildPayload(version, messages, variants, trimmed) {
@@ -318,9 +346,7 @@ function _removeOldestVariant(turn, result) {
         if (message.variantIndex > 0) {
             message.variantIndex--;
         } else if (values.length > 0) {
-            message.content = values[0].content;
-            message.thinking = values[0].thinking;
-            message.modelName = values[0].modelName;
+            _showVariant(message, values[0]);
         }
         if (values.length === 0) {
             delete turn.variants[message.id];

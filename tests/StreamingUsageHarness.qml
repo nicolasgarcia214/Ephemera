@@ -87,6 +87,16 @@ ShellRoot {
             + "' ''; printf '%s\\n' 'EPH_STATUS:200'");
     }
 
+    function startSplitUtf8() {
+        phase = "split-utf8";
+        currentProvider = "openai";
+        // Split U+20AC across two pipe writes and leave the status line
+        // unterminated so line splitting must flush the tail at exit.
+        launch("split-utf8", "printf 'data: {\"choices\":[{\"delta\":{\"content\":\"a\\342\\202';"
+            + " sleep 0.2; printf '\\254b\"},\"finish_reason\":\"stop\"}]}\\n\\n';"
+            + " printf 'EPH_STATUS:200'");
+    }
+
     function advanceWhenIdle() {
         if (streaming.transportBusy) {
             advanceTimer.restart();
@@ -98,11 +108,13 @@ ShellRoot {
             startOllamaUsage();
         else if (phase === "ollama-usage")
             startNativeOllama();
+        else if (phase === "native-ollama")
+            startSplitUtf8();
         else {
             streaming.handleStreamChunk("data: [DONE]\\n");
-            if (!check(finalizedCount === 4,
+            if (!check(finalizedCount === 5,
                     "completion markers or process exit finalized more than once")) return;
-            finish(true, "usage ordering, missing usage fallback, native completion, and exactly-once finalization passed");
+            finish(true, "usage ordering, missing usage fallback, native completion, split UTF-8 decoding, and exactly-once finalization passed");
         }
     }
 
@@ -134,7 +146,7 @@ ShellRoot {
         onStreamError: (streamId, message) =>
             root.finish(false, streamId + " failed: " + message)
 
-        onStreamFinalized: (streamId, stats) => {
+        onStreamFinalized: (streamId, stats, result) => {
             root.finalizedCount++;
             if (root.phase === "openai-usage") {
                 if (!root.check(streamId === "openai-usage"
@@ -151,11 +163,17 @@ ShellRoot {
                 if (!root.check(streamId === "ollama-usage"
                         && streaming.apiOutputTokens === 7,
                         "Ollama compatibility stream finalized before usage")) return;
-            } else if (!root.check(streamId === "native-ollama"
-                    && streaming.apiOutputTokens === 5,
-                    "native Ollama completion changed")) return;
+            } else if (root.phase === "native-ollama") {
+                if (!root.check(streamId === "native-ollama"
+                        && streaming.apiOutputTokens === 5,
+                        "native Ollama completion changed")) return;
+            } else if (!root.check(streamId === "split-utf8"
+                    && result.content === "a\u20acb"
+                    && streaming.lastHttpStatus === 200,
+                    "UTF-8 split across pipe reads was corrupted: "
+                        + JSON.stringify(result.content))) return;
 
-            if (!root.check(root.finalizedCount <= 4,
+            if (!root.check(root.finalizedCount <= 5,
                     "stream finalized more than once")) return;
             advanceTimer.restart();
         }

@@ -191,9 +191,9 @@ SettingsCard {
             }
         }
 
-        // Extended thinking toggle (Anthropic only)
+        // Extended thinking toggle (Anthropic and Gemini)
         AccordionSection {
-            show: aiService.provider === "anthropic"
+            show: aiService.provider === "anthropic" || aiService.provider === "gemini"
 
             Row {
                 width: parent.width
@@ -219,7 +219,9 @@ SettingsCard {
                     }
 
                     StyledText {
-                        text: "Uses adaptive thinking on current Claude models and a bounded manual budget on older supported models."
+                        text: aiService.provider === "gemini"
+                            ? "Shows Gemini's thought summaries. The model's thinking level is unchanged."
+                            : "Uses adaptive thinking on current Claude models and a bounded manual budget on older supported models."
                         font.pixelSize: Theme.fontSizeSmall
                         color: Theme.surfaceVariantText
                         wrapMode: Text.WordWrap

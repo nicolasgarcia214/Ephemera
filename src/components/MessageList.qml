@@ -19,18 +19,26 @@ Item {
     signal editRequested(string msgId, string newText)
     signal copyRequested(string msgId)
 
+    // --- Bottom follow ---
+    // Only an upward move away from the end leaves the bottom. Following
+    // growth moves contentY downward, and the ListView's sub-pixel alignment of
+    // its end position stays within _atEnd()'s tolerance, so neither can be
+    // mistaken for the user scrolling away.
+    property real _lastContentY: 0
+
     function scrollToBottom() {
         stickToBottom = true;
-        listView.positionViewAtEnd();
+        _followEnd();
     }
 
-    Connections {
-        target: root.messages
-        function onCountChanged() {
-            if (root.stickToBottom) {
-                Qt.callLater(function() { listView.positionViewAtEnd(); });
-            }
-        }
+    function _atEnd() {
+        return listView.contentY + listView.height
+            >= listView.originY + listView.contentHeight - 1;
+    }
+
+    function _followEnd() {
+        if (stickToBottom)
+            listView.positionViewAtEnd();
     }
 
     ListView {
@@ -46,15 +54,19 @@ Item {
         ScrollBar.vertical: ScrollBar {}
 
         onContentYChanged: {
-            root.stickToBottom = listView.atYEnd;
+            if (root._atEnd())
+                root.stickToBottom = true;
+            else if (listView.contentY < root._lastContentY)
+                root.stickToBottom = false;
+            root._lastContentY = listView.contentY;
         }
 
-        onModelChanged: {
-            Qt.callLater(function() {
-                root.stickToBottom = true;
-                listView.positionViewAtEnd();
-            });
-        }
+        // New messages, streamed deltas, and a shrinking viewport all move the
+        // end; coalesce them into one reposition per event-loop pass.
+        onContentHeightChanged: if (root.stickToBottom) Qt.callLater(root._followEnd)
+        onHeightChanged: if (root.stickToBottom) Qt.callLater(root._followEnd)
+
+        onModelChanged: Qt.callLater(root.scrollToBottom)
 
         delegate: Item {
             id: wrapper
@@ -90,6 +102,7 @@ Item {
                 text: model.content
                 thinking: model.thinking || ""
                 status: model.status
+                errorText: model.errorText || ""
                 modelName: (model.modelName || "").length > 0 ? model.modelName : root.modelName
                 expanded: root.expanded
                 isLastAssistant: model.role === "assistant" && index === listView.count - 1

@@ -300,6 +300,8 @@ function buildCurlCommand(provider, payload, apiKey) {
         "-N", "-sS", "--no-buffer", "--show-error",
         "--connect-timeout", "5",
         "--max-time", String(timeout),
+        // Bounds an unterminated line before it reaches the line parser.
+        "--max-filesize", "5242880",
         "-w", "\\nEPH_STATUS:%{http_code}\\n"
     ];
 
@@ -445,7 +447,7 @@ function _openaiCompatibleRequest(payload, apiKey, provider) {
         stream_options: { include_usage: true }
     };
     if (payload.max_tokens > 0) {
-        if (provider === "openai" && _isOpenAiOSeriesModel(payload.model))
+        if (provider === "openai")
             body.max_completion_tokens = payload.max_tokens;
         else
             body.max_tokens = payload.max_tokens;
@@ -591,7 +593,7 @@ function _anthropicOutputCap(model) {
 function geminiRequest(payload, apiKey) {
     var base = normalizeBaseUrl(payload.baseUrl || "https://generativelanguage.googleapis.com");
     // Validate model name — prevent path traversal via user-supplied free text
-    var model = payload.model || "gemini-2.5-flash";
+    var model = payload.model || "gemini-3.8-flash";
     if (!/^[a-zA-Z0-9._:\-]+$/.test(model)) return null;
     // Key as header, NOT in URL — security fix
     var url = base + "/v1beta/models/" + model
@@ -615,6 +617,7 @@ function geminiRequest(payload, apiKey) {
     var genConfig = {};
     if (payload.max_tokens > 0) genConfig.maxOutputTokens = payload.max_tokens;
     if (temp !== undefined) genConfig.temperature = temp;
+    if (payload.thinkingEnabled) genConfig.thinkingConfig = { includeThoughts: true };
     var body = {
         contents: contents,
         generationConfig: genConfig
@@ -681,11 +684,11 @@ var registry = {
         needsKey: true,
         hasNativeThinking: true,
         tempMin: 0.0, tempMax: 2.0, tempDefault: 1.0,
-        modelPlaceholder: "gemini-3.5-flash",
+        modelPlaceholder: "gemini-3.8-flash",
         models: [
-            "gemini-3.5-flash", "gemini-3.1-pro-preview",
-            "gemini-3.1-flash-lite", "gemini-2.5-pro",
-            "gemini-2.5-flash", "gemini-2.5-flash-lite"
+            "gemini-4-hydrogen", "gemini-4-neon", "gemini-4-carbon",
+            "gemini-4-argon", "gemini-3.8-flash", "gemini-3.6-flash",
+            "gemini-3.5-flash-lite", "gemini-3.1-pro-preview"
         ]
     },
     "custom": {

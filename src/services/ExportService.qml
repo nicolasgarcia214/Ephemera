@@ -19,7 +19,6 @@ Item {
         "ephemera-export"
     ]
     readonly property bool exportBusy: _activeExportId.length > 0
-    property string lastExportedFile: ""
 
     signal exportSucceeded(string exportId, string exportKind, string target)
     signal exportFailed(string exportId, string exportKind, string message)
@@ -119,8 +118,6 @@ Item {
             if (clipboardPurpose === "message") {
                 messageCopySucceeded(clipboardIdentity);
             } else {
-                if (exportKind === "file")
-                    lastExportedFile = target;
                 exportSucceeded(exportId, exportKind, target);
             }
         }

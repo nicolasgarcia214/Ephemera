@@ -401,7 +401,7 @@ These are non-negotiable design decisions:
 - **Gemini API key as header** (`x-goog-api-key`), not as a URL query parameter.
 - **Custom URL validation.** Custom base URLs require HTTPS for remote hosts. Plaintext HTTP is limited to exact `localhost` or unambiguous dotted-decimal `127.0.0.0/8` addresses. Credentials, invalid ports/hosts, unsafe characters, and values over 2048 characters are rejected.
 - **MCP boundary.** Only the reviewed runtime versions/layout are launched. Endpoint consent is identity-bound, redirects fail closed, tool discovery is bounded, exact input/output schemas are enforced, and every invocation requires confirmation.
-- **Stdout buffer cap.** The main response process is stopped when its QML text buffer exceeds 5,242,880 string code units. The smaller Ollama readiness, discovery, and GPU probes use curl-enforced 64 KiB raw-byte caps. Neither collector can grow without bound.
+- **Stdout buffer cap.** The main response process runs with curl `--max-filesize 5242880` and is also stopped when its received line text exceeds 5,242,880 string code units. The smaller Ollama readiness, discovery, and GPU probes use curl-enforced 64 KiB raw-byte caps. Neither collector can grow without bound.
 
 ## Adding a new provider
 

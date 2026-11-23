@@ -46,15 +46,16 @@ function renderCacheKey(text, colors) {
  * 1. Extract fenced code blocks and inline code into placeholders (pre-escaped).
  * 2. Extract markdown tables into pre-built HTML (cell content escaped).
  * 3. Escape remaining HTML entities (&, <, >).
- * 4. Transform markdown syntax (headers, bold, italic, links, lists, blockquotes, hr).
- * 5. Wrap/protect list and blockquote HTML in placeholders.
- * 6. Auto-link plain URLs (http/https only).
+ * 4. Extract link hrefs and plain-URL auto-links (http/https only) into placeholders.
+ * 5. Transform markdown syntax (headers, bold, italic, lists, blockquotes, hr).
+ * 6. Wrap/protect list and blockquote HTML in placeholders.
  * 7. Convert newlines to <br/> and paragraph breaks.
  * 8. Restore all placeholders in reverse order.
  * 9. Clean up redundant break/paragraph tags.
  *
  * Security: All user text is HTML-escaped before inline formatting is applied.
- * Code block contents, table cells, link text, and link URLs are independently escaped.
+ * Code block contents and table cells are escaped independently; link text and URLs
+ * are escaped exactly once by the body pass, with quotes also escaped inside href.
  * Link href attributes are restricted to http/https schemes.
  *
  * @param {string} text - Raw markdown text.
@@ -155,6 +156,39 @@ function markdownToHtml(text, colors) {
                .replace(/</g, '&lt;')
                .replace(/>/g, '&gt;');
 
+    // Links — extracted right after escaping so each part is escaped exactly
+    // once and emphasis markers inside URLs are never interpreted. Only the
+    // href (or the whole auto-link) is protected; link text keeps formatting.
+    var links = [];
+    function protectLink(anchorHtml) {
+        links.push(anchorHtml);
+        return '\x00LINK' + (links.length - 1) + '\x00';
+    }
+    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, function(match, text, url) {
+        if (/^https?:\/\//i.test(url))
+            return '<a href="' + protectLink(url.replace(/"/g, '&quot;')) + '">' + text + '</a>';
+        // Non-http(s) schemes: render as plain text
+        return text + ' (' + url + ')';
+    });
+    // Auto-link plain URLs — http/https only (no file: scheme)
+    // Trailing emphasis markers and sentence punctuation stay outside the URL.
+    html = html.replace(/(^|[^"'>])(https?:\/\/[^\s<\x00]+)/g, function(match, pre, url) {
+        var end = url.length;
+        while (end > 0) {
+            var last = url.charAt(end - 1);
+            var unbalanced = last === ")"
+                && url.slice(0, end).split(")").length > url.slice(0, end).split("(").length;
+            if ("*_~.,;:!?".indexOf(last) < 0 && !unbalanced)
+                break;
+            end--;
+        }
+        var href = url.slice(0, end);
+        if (!/^https?:\/\/./i.test(href))
+            return match;
+        return pre + protectLink('<a href="' + href.replace(/"/g, '&quot;') + '">' + href + '</a>')
+            + url.slice(end);
+    });
+
     // Headers
     html = html.replace(/^######\s+([\s\S]*?)$/gm, '<h6 style="margin-bottom: 8px;"><font size="2">$1</font></h6>');
     html = html.replace(/^#####\s+([\s\S]*?)$/gm, '<h5 style="margin-bottom: 8px;"><i><font size="3">$1</font></i></h5>');
@@ -170,21 +204,13 @@ function markdownToHtml(text, colors) {
     html = html.replace(/\*\*\*(.*?)\*\*\*/g, '<b><i>$1</i></b>');
     html = html.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
     html = html.replace(/\*(.*?)\*/g, '<i>$1</i>');
-    html = html.replace(/___(.*?)___/g, '<b><i>$1</i></b>');
-    html = html.replace(/__(.*?)__/g, '<b>$1</b>');
-    html = html.replace(/_(.*?)_/g, '<i>$1</i>');
+    // Underscore emphasis is word-boundary anchored, so snake_case is literal
+    html = html.replace(/(^|[^A-Za-z0-9_])___(.+?)___(?![A-Za-z0-9_])/g, '$1<b><i>$2</i></b>');
+    html = html.replace(/(^|[^A-Za-z0-9_])__(.+?)__(?![A-Za-z0-9_])/g, '$1<b>$2</b>');
+    html = html.replace(/(^|[^A-Za-z0-9_])_(.+?)_(?![A-Za-z0-9_])/g, '$1<i>$2</i>');
 
     // Strikethrough
     html = html.replace(/~~(.*?)~~/g, '<s>$1</s>');
-
-    // Links — with scheme whitelist; text and URL are escaped for safety
-    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, function(match, text, url) {
-        if (/^https?:\/\//i.test(url)) {
-            return '<a href="' + escapeHtml(url) + '">' + escapeHtml(text) + '</a>';
-        }
-        // Non-http(s) schemes: render as plain text
-        return escapeHtml(text) + ' (' + escapeHtml(url) + ')';
-    });
 
     // Task Lists
     html = html.replace(/^\s*[\*\-] \[([ xX])\] (.*?)$/gm, function(match, checked, content) {
@@ -230,11 +256,6 @@ function markdownToHtml(text, colors) {
         return '\x00PROTECTEDBLOCK' + (protectedIndex++) + '\x00\n';
     });
 
-    // Auto-link plain URLs — http/https only (no file: scheme)
-    html = html.replace(/(^|[^"'>])(https?:\/\/[^\s<]+)/g, function(match, pre, url) {
-        return pre + '<a href="' + escapeHtml(url) + '">' + escapeHtml(url) + '</a>';
-    });
-
     // Line breaks
     html = html.replace(/\n\n/g, '</p><p>');
     html = html.replace(/\n/g, '<br/>');
@@ -259,6 +280,11 @@ function markdownToHtml(text, colors) {
     html = html.replace(/\x00INLINECODE(\d+)\x00/g, function(match, index) {
         var idx = parseInt(index);
         return idx < inlineCode.length ? inlineCode[idx] : match;
+    });
+
+    html = html.replace(/\x00LINK(\d+)\x00/g, function(match, index) {
+        var idx = parseInt(index);
+        return idx < links.length ? links[idx] : match;
     });
 
     // Cleanup

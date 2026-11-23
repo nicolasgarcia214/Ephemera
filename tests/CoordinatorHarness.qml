@@ -116,9 +116,38 @@ ShellRoot {
                 && !service.isStreaming
                 && service.messagesModel.count === 2
                 && service.messagesModel.get(1).status === "error"
-                && service.messagesModel.get(1).content === transportError
+                && service.messagesModel.get(1).content === ""
+                && service.messagesModel.get(1).errorText === transportError
                 && service.messagesModel.get(1).requestPayload === "",
                 "custom HTTP transport rejection was not reported before launch")) return;
+
+        var failedId = service.messagesModel.get(1).id;
+        service._applyError(failedId, "Request timed out.\nThe provider took too long to respond.", {
+            content: "partial answer", thinking: "partial thought", variantIndex: 0
+        });
+        if (!check(service.messagesModel.get(1).status === "error"
+                && service.messagesModel.get(1).content === "partial answer"
+                && service.messagesModel.get(1).thinking === "partial thought"
+                && service.messagesModel.get(1).errorText.indexOf("Request timed out.") === 0
+                && service.variantStore[failedId][0].content === "partial answer",
+                "stream error replaced partial output instead of keeping it beside the error")) return;
+        var exported = service.buildConversationMarkdown();
+        if (!check(exported.indexOf("partial answer\n\n> Error: Request timed out.") >= 0,
+                "export dropped the error text of a failed response")) return;
+
+        // The failed variant keeps its error after another variant is shown.
+        service.messagesModel.setProperty(1, "variantCount", 2);
+        service._saveVariant(failedId, 1, "second answer", "", "custom-model", "");
+        service.switchVariant(failedId, 1);
+        if (!check(service.messagesModel.get(1).status === "ok"
+                && service.messagesModel.get(1).errorText === ""
+                && service.messagesModel.get(1).content === "second answer",
+                "switching to a successful variant kept the failed variant's error")) return;
+        service.switchVariant(failedId, 0);
+        if (!check(service.messagesModel.get(1).status === "error"
+                && service.messagesModel.get(1).errorText.indexOf("Request timed out.") === 0
+                && service.messagesModel.get(1).content === "partial answer",
+                "switching back to a failed variant lost its error")) return;
 
         service.setOllamaContextWindow(32768);
         if (!check(service.ollamaContextWindow === 32768

@@ -13,7 +13,8 @@ Popup {
     padding: Theme.spacingL
     modal: true
     dim: false
-    onOpened: clearConfirmBtn.forceActiveFocus()
+    // Default focus is the safe choice: Ctrl+L then Enter must not wipe the chat.
+    onOpened: cancelBtn.forceActiveFocus()
 
     background: Rectangle {
         color: Theme.surfaceContainerHighest
@@ -58,14 +59,17 @@ Popup {
             spacing: Theme.spacingS
 
             DankButton {
+                id: cancelBtn
                 text: "Cancel"
+                focus: true
+                Keys.onReturnPressed: clicked()
+                Keys.onEnterPressed: clicked()
                 onClicked: root.close()
             }
 
             DankButton {
                 id: clearConfirmBtn
                 text: "Clear"
-                focus: true
                 backgroundColor: Theme.error
                 textColor: Theme.onPrimary
                 Keys.onReturnPressed: clicked()

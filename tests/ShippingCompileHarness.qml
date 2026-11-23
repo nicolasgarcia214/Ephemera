@@ -27,6 +27,41 @@ ShellRoot {
         explicitComponentCount++;
     }
 
+    function checkFocusedPanelSelection() {
+        var left = { modelData: { name: "DP-1" } };
+        var right = { modelData: { name: "HDMI-A-1" } };
+        var panels = [left, right];
+        var cases = [
+            [shippingDaemon._panelForScreen(panels, "HDMI-A-1"), right, "focused screen"],
+            [shippingDaemon._panelForScreen(panels, "eDP-1"), left, "unknown screen fallback"],
+            [shippingDaemon._panelForScreen(panels, ""), left, "no focused screen fallback"],
+            [shippingDaemon._panelForScreen([], "DP-1"), null, "no panels"]
+        ];
+        for (var i = 0; i < cases.length; i++) {
+            if (cases[i][0] !== cases[i][1]) {
+                finish(false, "daemon toggle panel selection failed: " + cases[i][2]);
+                return false;
+            }
+        }
+        function panel(name, open) {
+            return { modelData: { name: name }, isVisible: open,
+                     show: function() { this.isVisible = true; },
+                     hide: function() { this.isVisible = false; } };
+        }
+        var a = panel("DP-1", true), b = panel("HDMI-A-1", false);
+        shippingDaemon._togglePanels([a, b], "HDMI-A-1");
+        if (a.isVisible || b.isVisible) {
+            finish(false, "daemon toggle opened a second panel instead of closing the open one");
+            return false;
+        }
+        shippingDaemon._togglePanels([a, b], "HDMI-A-1");
+        if (a.isVisible || !b.isVisible) {
+            finish(false, "daemon toggle did not open the focused screen's panel");
+            return false;
+        }
+        return true;
+    }
+
     EphemeraDaemon {
         id: shippingDaemon
 
@@ -150,6 +185,7 @@ ShellRoot {
         });
 
         requireObject(shippingDaemon, "EphemeraDaemon");
+        if (!checkFocusedPanelSelection()) return;
         requireObject(productionPanel, "EphemeraPanel");
         requireObject(accordionSection, "AccordionSection");
         requireObject(apiKeysCard, "ApiKeysCard");

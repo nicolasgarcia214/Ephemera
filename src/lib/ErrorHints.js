@@ -40,6 +40,7 @@ function curlExitHint(exitCode, provider, providerDisplayName, ollamaUrl) {
         ? "Connection refused \u2014 Ollama appears to be down.\nMake sure Ollama is running at " + ollamaUrl + "."
         : "Connection refused \u2014 " + providerDisplayName + " is unreachable.";
     case 28: return "Request timed out.\nThe provider took too long to respond.";
+    case 63: return "Response exceeded maximum buffer size (5 MB).";
     case 35: return "TLS/SSL connection error.\nCheck the provider URL and your network.";
     default: return "Request failed (exit code " + exitCode + ").";
     }

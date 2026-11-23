@@ -12,6 +12,7 @@ Item {
     property string thinking: ""
     property bool thinkingExpanded: false
     property string status: "ok" // ok|streaming|error
+    property string errorText: ""
     property string modelName: "Assistant"
     property bool expanded: false
     property bool isLastAssistant: false
@@ -57,6 +58,19 @@ Item {
     readonly property bool useMarkdownRendering: !isUser && status !== "streaming"
     property string renderedHtml: ""
     property string _lastRenderKey: ""
+
+    // --- Error presentation ---
+    // Chats saved before errorText existed stored the error as the content.
+    readonly property string _errorMessage:
+        status !== "error" ? "" : (errorText.length > 0 ? errorText : text)
+    readonly property bool _showsContent:
+        status !== "error" || (errorText.length > 0 && text.length > 0)
+    readonly property int _errorBreak: _errorMessage.indexOf("\n")
+    readonly property string _errorTitle:
+        (_errorBreak < 0 ? _errorMessage : _errorMessage.substring(0, _errorBreak)).trim()
+        || "Request failed"
+    readonly property string _errorDetail:
+        _errorBreak < 0 ? "" : _errorMessage.substring(_errorBreak + 1).trim()
 
     function _updateRenderedHtml() {
         var renderKey = Markdown.renderCacheKey(root.text, themeColors);
@@ -476,49 +490,15 @@ Item {
                 visible: root.thinking.length > 0
             }
 
-            // Warning banner for errors
-            Rectangle {
-                visible: root.status === "error"
-                width: parent.width
-                height: visible ? warningRow.implicitHeight + Theme.spacingS * 2 : 0
-                radius: Theme.cornerRadius * 0.75
-                color: Theme.withAlpha(Theme.error, 0.08)
-                border.color: Theme.withAlpha(Theme.error, 0.3)
-                border.width: 1
-
-                Row {
-                    id: warningRow
-                    x: Theme.spacingS
-                    y: Theme.spacingS
-                    width: parent.width - Theme.spacingS * 2
-                    spacing: Theme.spacingS
-
-                    DankIcon {
-                        name: "warning"
-                        size: 16
-                        color: Theme.error
-                        anchors.verticalCenter: parent.verticalCenter
-                    }
-
-                    StyledText {
-                        text: "Provider not connected"
-                        font.pixelSize: Theme.fontSizeSmall
-                        font.weight: Font.Medium
-                        color: Theme.error
-                        anchors.verticalCenter: parent.verticalCenter
-                    }
-                }
-            }
-
             TextArea {
                 id: contentArea
-                visible: !root._editing
+                visible: !root._editing && root._showsContent
                 text: root.useMarkdownRendering ? root.renderedHtml : root.text
                 textFormat: root.useMarkdownRendering ? Text.RichText : Text.PlainText
                 wrapMode: Text.Wrap
                 font.pixelSize: Theme.fontSizeMedium
                 font.family: Theme.fontFamily
-                color: status === "error" ? Theme.error : Theme.surfaceText
+                color: Theme.surfaceText
                 width: parent.width
 
                 readOnly: true
@@ -545,6 +525,55 @@ Item {
                         contentArea.text = Qt.binding(function() {
                             return root.useMarkdownRendering ? root.renderedHtml : root.text;
                         });
+                    }
+                }
+            }
+
+            // Warning banner for errors
+            Rectangle {
+                visible: root.status === "error"
+                width: parent.width
+                height: visible ? warningRow.height + Theme.spacingS * 2 : 0
+                radius: Theme.cornerRadius * 0.75
+                color: Theme.withAlpha(Theme.error, 0.08)
+                border.color: Theme.withAlpha(Theme.error, 0.3)
+                border.width: 1
+
+                Row {
+                    id: warningRow
+                    x: Theme.spacingS
+                    y: Theme.spacingS
+                    width: parent.width - Theme.spacingS * 2
+                    spacing: Theme.spacingS
+
+                    DankIcon {
+                        id: warningIcon
+                        name: "warning"
+                        size: 16
+                        color: Theme.error
+                    }
+
+                    Column {
+                        width: parent.width - warningIcon.width - parent.spacing
+                        spacing: Theme.spacingXS
+
+                        StyledText {
+                            text: root._errorTitle
+                            width: parent.width
+                            wrapMode: Text.Wrap
+                            font.pixelSize: Theme.fontSizeSmall
+                            font.weight: Font.Medium
+                            color: Theme.error
+                        }
+
+                        StyledText {
+                            visible: root._errorDetail.length > 0
+                            text: root._errorDetail
+                            width: parent.width
+                            wrapMode: Text.Wrap
+                            font.pixelSize: Theme.fontSizeSmall
+                            color: Theme.error
+                        }
                     }
                 }
             }

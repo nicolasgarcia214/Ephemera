@@ -10,9 +10,30 @@ Item {
     id: root
 
     function toggle() {
-        if (variants.instances.length > 0) {
-            variants.instances[0].toggle();
+        _togglePanels(variants.instances, CompositorService.getFocusedScreenName());
+    }
+
+    // Close every open panel; when none was open, open the focused screen's.
+    function _togglePanels(panels, screenName) {
+        var closed = false;
+        for (var i = 0; i < panels.length; i++) {
+            if (panels[i].isVisible) {
+                panels[i].hide();
+                closed = true;
+            }
         }
+        var panel = closed ? null : _panelForScreen(panels, screenName);
+        if (panel)
+            panel.show();
+    }
+
+    // Prefer the panel on the named (focused) screen; fall back to the first.
+    function _panelForScreen(panels, screenName) {
+        for (var i = 0; screenName && i < panels.length; i++) {
+            if (panels[i].modelData && panels[i].modelData.name === screenName)
+                return panels[i];
+        }
+        return panels.length > 0 ? panels[0] : null;
     }
 
     IpcHandler {

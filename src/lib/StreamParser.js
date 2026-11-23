@@ -205,7 +205,11 @@ function parseDelta(jsonText, provider) {
                 if (!content || !Array.isArray(content.parts)) continue;
                 var cparts = content.parts;
                 for (var pi = 0; pi < cparts.length; pi++) {
-                    if (cparts[pi] && cparts[pi].text)
+                    if (!cparts[pi] || !cparts[pi].text) continue;
+                    // includeThoughts summaries arrive as parts flagged thought: true
+                    if (cparts[pi].thought === true)
+                        result.thinking += cparts[pi].text;
+                    else
                         result.content += cparts[pi].text;
                 }
                 // Gemini includes usageMetadata with token counts
@@ -349,7 +353,7 @@ function routeThinkTags(delta, tagBuffer, insideThinkTag) {
  *
  * Used as a fallback when no streaming deltas were received but the HTTP
  * response was successful. Handles Anthropic (content[].text), Gemini
- * (candidates[].content.parts[].text), Ollama native/OpenAI-compatible, and
+ * (candidates[].content.parts[].text, skipping thought summaries), Ollama native/OpenAI-compatible, and
  * OpenAI/Custom (choices[].message.content).
  *
  * @param {string} bodyText - Raw response body (JSON string).
@@ -382,7 +386,8 @@ function extractNonStreamingText(bodyText, provider) {
                 if (!gcontent || !Array.isArray(gcontent.parts)) continue;
                 var gparts = gcontent.parts;
                 for (var gpi = 0; gpi < gparts.length; gpi++) {
-                    if (gparts[gpi] && gparts[gpi].text) gout += gparts[gpi].text;
+                    if (gparts[gpi] && gparts[gpi].text && gparts[gpi].thought !== true)
+                        gout += gparts[gpi].text;
                 }
             }
             return gout;

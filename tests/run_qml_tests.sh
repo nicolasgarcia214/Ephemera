@@ -88,6 +88,7 @@ cp "$ROOT/tests/ShippingCompileHarness.qml" "$CONFIG_DIR/ShippingCompileHarness.
 cp "$ROOT/tests/SettingsLifecycleHarness.qml" "$CONFIG_DIR/SettingsLifecycleHarness.qml"
 cp "$ROOT/tests/SettingsCloseGuardHarness.qml" "$CONFIG_DIR/SettingsCloseGuardHarness.qml"
 cp "$ROOT/tests/ApiKeyLifecycleHarness.qml" "$CONFIG_DIR/ApiKeyLifecycleHarness.qml"
+cp "$ROOT/tests/MessageListHarness.qml" "$CONFIG_DIR/MessageListHarness.qml"
 cp "$ROOT/tests/fixtures/qml/Common/"* "$CONFIG_DIR/Common/"
 cp "$ROOT/tests/fixtures/qml/Services/"* "$CONFIG_DIR/Services/"
 cp "$ROOT/tests/fixtures/qml/Widgets/"* "$CONFIG_DIR/Widgets/"
@@ -330,5 +331,6 @@ run_ollama_lifecycle_harness
 run_harness KeyringHarness EPHEMERA_KEYRING_TEST 1
 run_harness ApiKeyLifecycleHarness EPHEMERA_API_KEY_LIFECYCLE_TEST
 run_ollama_probe_limit_harness
+run_harness MessageListHarness EPHEMERA_MESSAGE_LIST_TEST
 run_harness EphemeraPanelHarness EPHEMERA_PANEL_QML_TEST
 run_harness ShippingCompileHarness EPHEMERA_SHIPPING_COMPILE_TEST

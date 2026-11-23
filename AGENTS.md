@@ -22,7 +22,7 @@ EphemeraService.qml is the **coordinator** that owns message state (`messagesMod
 - **Provider switch clears chat** — changing providers clears history and index maps to prevent stale `messageIndexMap` lookups. Model changes within the same provider preserve conversation.
 - **ListModel limitations** — QML `ListModel` can't store nested arrays or complex objects. Use JS side-channel maps (`variantStore`, `messageIndexMap`) alongside the model.
 - **Ollama destruction safety net** — `Component.onDestruction` requests termination of the exact owned `Process` and uses `kill` only with its captured PID. There is deliberately no `pkill` fallback when ownership identity is unavailable. External Ollama is never auto-stopped by the idle timer.
-- **Main stdout buffer cap** — exceeding 5,242,880 QML string code units kills the response curl process; Ollama readiness, discovery, and GPU probes separately use curl-enforced 64 KiB raw-byte caps.
+- **Main stdout buffer cap** — the response curl process carries `--max-filesize 5242880` and StreamingService also stops it once received line text exceeds 5,242,880 code units, so an unterminated line cannot grow unbounded; Ollama readiness, discovery, and GPU probes separately use curl-enforced 64 KiB raw-byte caps.
 - **DMS permissions are silent** — missing permission declarations in `plugin.json` prevent PluginService calls without logging errors. Current permissions: `settings_read`, `settings_write`.
 - **pluginData null during init** — use `??` operator; values are `undefined` before first load.
 - **DMS auto-injected properties** — `pluginData`, `pluginService`, `pluginId` are injected into the root component. Don't redeclare them.

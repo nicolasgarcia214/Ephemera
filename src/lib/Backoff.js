@@ -50,20 +50,3 @@ function isInCooldown(cooldownUntil) {
     if (cooldownUntil <= 0) return false;
     return Date.now() < cooldownUntil;
 }
-
-/**
- * Get the deterministic (non-jittered) upper bound of the cooldown for a given error count.
- *
- * Useful for UI display since the actual jittered delay varies per call.
- *
- * @param {number} consecutiveErrors - Number of consecutive errors so far.
- * @param {number} [baseDelayMs=2000] - Base delay.
- * @param {number} [maxDelayMs=30000] - Maximum delay cap.
- * @returns {number} Upper bound delay in milliseconds.
- */
-function maxDelayForAttempt(consecutiveErrors, baseDelayMs, maxDelayMs) {
-    if (consecutiveErrors <= 0) return 0;
-    var base = baseDelayMs || 2000;
-    var max = maxDelayMs || 30000;
-    return Math.min(max, base * Math.pow(2, consecutiveErrors - 1));
-}

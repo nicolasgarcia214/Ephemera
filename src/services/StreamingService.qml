@@ -28,10 +28,9 @@ Item {
     property string _fetchProvider: ""
     property int _fetchGeneration: -1
     property string _fetchOutput: ""
+    property int _fetchReceivedLength: 0
+    readonly property int _maxFetchOutputLength: 5242880
     property bool _processActive: false
-    property bool _fetchOutputFinished: false
-    property bool _fetchExitObserved: false
-    property int _fetchExitCode: -1
     property real streamStartTime: 0
     property int streamTokenCount: 0
     property int _apiOutputTokens: 0
@@ -190,15 +189,8 @@ Item {
         _fetchStreamId = launch.streamId;
         _fetchProvider = launch.provider;
         _fetchGeneration = launch.generation;
-        // StdioCollector exposes a fresh process buffer after the first read,
-        // but may still expose the prior text when a new process emits no
-        // output. Parse deltas from zero and keep a launch-local completion
-        // buffer so zero-output runs cannot replay the prior response.
-        streamCollector.lastLen = 0;
         _fetchOutput = "";
-        _fetchOutputFinished = false;
-        _fetchExitObserved = false;
-        _fetchExitCode = -1;
+        _fetchReceivedLength = 0;
         streamBuffer = "";
         _insideThinkTag = false;
         _tagBuffer = "";
@@ -228,34 +220,9 @@ Item {
             && _fetchGeneration === _completedFetchGeneration;
     }
 
+    // SplitParser delivers every line, including an unterminated tail,
+    // before Process emits exited, so exit alone completes the transport.
     function _finishCurlProcess(exitCode, failedToStart) {
-        if (!_processActive)
-            return;
-
-        if (failedToStart) {
-            _completeCurlProcess(exitCode, true);
-            return;
-        }
-
-        _fetchExitObserved = true;
-        _fetchExitCode = exitCode;
-        _completeCurlProcessIfReady();
-    }
-
-    function _finishCurlOutput() {
-        if (!_processActive)
-            return;
-        _fetchOutputFinished = true;
-        _completeCurlProcessIfReady();
-    }
-
-    function _completeCurlProcessIfReady() {
-        if (!_processActive || !_fetchOutputFinished || !_fetchExitObserved)
-            return;
-        _completeCurlProcess(_fetchExitCode, false);
-    }
-
-    function _completeCurlProcess(exitCode, failedToStart) {
         if (!_processActive)
             return;
 
@@ -271,9 +238,6 @@ Item {
         _fetchStreamId = "";
         _fetchProvider = "";
         _fetchGeneration = -1;
-        _fetchOutputFinished = false;
-        _fetchExitObserved = false;
-        _fetchExitCode = -1;
 
         // A replacement owns the active identity now; drain the old process
         // without applying its result or exit status to the new request.
@@ -285,15 +249,13 @@ Item {
         // Process exit is authoritative. A syntactically complete partial body
         // must not be accepted when curl reports timeout, truncation, or another
         // transport failure after stdout has drained.
-        if (fetchMatches) {
-            if (failedToStart) {
-                _markError(fetchStreamId,
-                    "Could not start the response process. Make sure curl is installed and available in PATH.");
-            } else if (exitCode !== 0) {
-                _markError(fetchStreamId, _curlExitHint(exitCode));
-            } else {
-                handleStreamFinished(output);
-            }
+        if (failedToStart) {
+            _markError(fetchStreamId,
+                "Could not start the response process. Make sure curl is installed and available in PATH.");
+        } else if (exitCode !== 0) {
+            _markError(fetchStreamId, _curlExitHint(exitCode));
+        } else {
+            handleStreamFinished(output);
         }
     }
 
@@ -308,15 +270,7 @@ Item {
         if (!isStreaming) return;
         var streamId = activeStreamId;
 
-        // Flush any remaining tag buffer before clearing state
-        if (_tagBuffer.length > 0) {
-            if (_insideThinkTag)
-                _applyModelThinkingDelta(streamId, _tagBuffer);
-            else
-                _applyModelContentDelta(streamId, _tagBuffer);
-            _tagBuffer = "";
-        }
-        _insideThinkTag = false;
+        _flushTagBuffer(streamId);
         isStreaming = false;
         _clearToolState(true, "Stream cancelled.");
         _pendingLaunch = null;
@@ -370,9 +324,6 @@ Item {
         streamBuffer = "";
         pendingStdinBody = "";
         _pendingLaunch = null;
-        _fetchOutputFinished = false;
-        _fetchExitObserved = false;
-        _fetchExitCode = -1;
         _lastFinalizedStreamId = "";
         _completedFetchStreamId = "";
         _completedFetchProvider = "";
@@ -795,9 +746,8 @@ Item {
         streamThinkingUpdated(streamId, _streamThinking, _streamVariantIndex);
     }
 
-    function _finalizeStream(streamId) {
-        if (!isStreaming || activeStreamId !== streamId) return;
-
+    // Emit text held back while detecting a partial <think> tag.
+    function _flushTagBuffer(streamId) {
         if (_tagBuffer.length > 0) {
             if (_insideThinkTag)
                 _applyModelThinkingDelta(streamId, _tagBuffer);
@@ -806,6 +756,11 @@ Item {
             _tagBuffer = "";
         }
         _insideThinkTag = false;
+    }
+
+    function _finalizeStream(streamId) {
+        if (!isStreaming || activeStreamId !== streamId) return;
+        _flushTagBuffer(streamId);
 
         _lastFinalizedStreamId = streamId;
         _completedFetchStreamId = streamId;
@@ -825,7 +780,8 @@ Item {
     function _markError(streamId, message) {
         if (!isStreaming || !streamId || activeStreamId !== streamId)
             return false;
-        _streamContent = message;
+        // Partial output stays the message body; the error travels separately.
+        _flushTagBuffer(streamId);
         _pendingLaunch = null;
         _awaitingUsageCompletion = false;
         _clearToolState(true, message);
@@ -864,6 +820,29 @@ Item {
                                        _providerDisplayName(), ollamaUrl);
     }
 
+    function _handleFetchLine(data) {
+        // SplitParser strips the separator; restore it for SSE line parsing
+        // and the raw body used for status and non-streaming fallbacks.
+        var chunk = data + "\n";
+        var fetchIsActive = _fetchMatchesActiveStream();
+        // Enforce the cap for the process even after its stream identity has
+        // been cancelled. Stale output remains inert, but it cannot grow
+        // without bound while termination drains.
+        _fetchReceivedLength += chunk.length;
+        if (_fetchReceivedLength > _maxFetchOutputLength) {
+            chatFetcher.running = false;
+            if (fetchIsActive)
+                _markError(activeStreamId,
+                    "Response exceeded maximum buffer size (5 MB).");
+            return;
+        }
+        if (!fetchIsActive && !_fetchMatchesFinalizedStream())
+            return;
+        _fetchOutput += chunk;
+        if (fetchIsActive)
+            handleStreamChunk(chunk);
+    }
+
     // --- Processes ---
 
     Process {
@@ -887,36 +866,10 @@ Item {
             }
         }
 
-        stdout: StdioCollector {
-            id: streamCollector
-            waitForEnd: false
-            property int lastLen: 0
-
-            onTextChanged: {
-                var fetchIsActive = root._fetchMatchesActiveStream();
-                var fetchIsFinalized = root._fetchMatchesFinalizedStream();
-                // Enforce the cap for the process even after its stream
-                // identity has been cancelled. Stale output remains inert,
-                // but it cannot grow without bound while termination drains.
-                if (text.length > 5242880) {
-                    chatFetcher.running = false;
-                    if (fetchIsActive)
-                        root._markError(root.activeStreamId,
-                            "Response exceeded maximum buffer size (5 MB).");
-                    return;
-                }
-                if (!fetchIsActive && !fetchIsFinalized)
-                    return;
-                var newData = text.substring(lastLen);
-                lastLen = text.length;
-                root._fetchOutput += newData;
-                if (fetchIsActive)
-                    root.handleStreamChunk(newData);
-            }
-
-            onStreamFinished: {
-                root._finishCurlOutput();
-            }
+        // Splitting on the newline byte keeps multi-byte UTF-8 sequences
+        // whole; decoding arbitrary pipe reads would corrupt split characters.
+        stdout: SplitParser {
+            onRead: data => root._handleFetchLine(data)
         }
 
         onExited: exitCode => root._finishCurlProcess(exitCode, false)

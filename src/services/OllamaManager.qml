@@ -27,7 +27,6 @@ Item {
     readonly property int _probeTimeoutSeconds: 5
     readonly property int _curlFileSizeExceededExitCode: 63
     property string _probeExecutable: "curl"
-    property bool _shuttingDown: false
     property bool _terminationPending: false
     property bool _restartAfterExit: false
     property bool _probePending: false
@@ -57,14 +56,12 @@ Item {
     property int _lastGpuResponseBytes: 0
     property int _lastGpuResponseCharacters: 0
 
-    signal modelDiscovered(string name)
     signal modelAutoSelected(string name)
     signal gpuStatusReady(string label)
 
     function ensureReady() {
         if (!active)
             return;
-        _shuttingDown = false;
         ollamaIdleTimer.stop();
         retryTimer.stop();
         ollamaRetries = 0;
@@ -76,7 +73,6 @@ Item {
     }
 
     function shutdown() {
-        _shuttingDown = true;
         _restartAfterExit = false;
         _invalidateProbes();
         ollamaReady = false;
@@ -90,7 +86,6 @@ Item {
     function forceShutdownExternal() {
         if (!localProcessManaged)
             return false;
-        _shuttingDown = true;
         _restartAfterExit = false;
         _invalidateProbes();
         // External Ollama: use pkill -x for exact process name match (not -f substring)
@@ -111,6 +106,16 @@ Item {
 
     function stopIdleTimer() {
         ollamaIdleTimer.stop();
+    }
+
+    // A stream (including one paused on MCP tool approval) defers shutdown by
+    // a full idle interval instead of cancelling it.
+    function _handleIdleTimeout() {
+        if (!active || !ollamaWeStarted) return;
+        if (isStreaming)
+            ollamaIdleTimer.restart();
+        else
+            shutdown();
     }
 
     function discoverModels() {
@@ -157,7 +162,6 @@ Item {
 
     function cleanupOnDestruction() {
         if (ollamaWeStarted || ollamaStartPending || ollamaProcess.running) {
-            _shuttingDown = true;
             _restartAfterExit = false;
             _invalidateProbes();
             ollamaProcess.running = false;
@@ -335,7 +339,6 @@ Item {
     }
 
     function _deactivate() {
-        _shuttingDown = true;
         _restartAfterExit = false;
         _invalidateProbes();
         ollamaRetries = 0;
@@ -410,10 +413,8 @@ Item {
         if (!active)
             return;
         if (ollamaWeStarted || ollamaStartPending || ollamaProcess.running) {
-            _shuttingDown = true;
             _requestOwnedStop(true);
         } else {
-            _shuttingDown = false;
             ping();
         }
     }
@@ -571,9 +572,6 @@ Item {
         id: ollamaIdleTimer
         interval: root.ollamaIdleMinutes * 60 * 1000
         repeat: false
-        onTriggered: {
-            if (root.active && root.ollamaWeStarted && !root.isStreaming)
-                root.shutdown();
-        }
+        onTriggered: root._handleIdleTimeout()
     }
 }
