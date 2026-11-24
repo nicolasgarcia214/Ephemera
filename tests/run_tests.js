@@ -3048,7 +3048,7 @@ section("Conversation export lifecycle wiring");
         exportSource.indexOf('mktemp \\"$1.tmp.XXXXXX\\"') >= 0
             && exportSource.indexOf('chmod 0600 \\"/proc/$$/fd/3\\"') >= 0
             && exportSource.indexOf("cat >&3") >= 0
-            && exportSource.indexOf('ln \\"$tmp\\" \\"$1\\"') >= 0
+            && exportSource.indexOf('ln -T \\"$tmp\\" \\"$1\\"') >= 0
             && exportSource.indexOf("_fileExportCommand.concat([filename])") >= 0,
         "file export preserves stdin transport, mode 0600, and no-clobber creation"
     );
