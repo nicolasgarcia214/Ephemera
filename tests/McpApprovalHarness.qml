@@ -26,7 +26,7 @@ ShellRoot {
     function startToolTurn(streamId, approvals, toolArgs) {
         activeApprovals = approvals;
         streaming.beginStream(streamId, 0, [{ role: "user", content: "echo hello" }]);
-        streaming.handleStreamChunk(JSON.stringify({
+        streaming.handleStreamLine(JSON.stringify({
             message: {
                 role: "assistant",
                 content: "",
@@ -39,7 +39,7 @@ ShellRoot {
             },
             done: true,
             eval_count: 3
-        }) + "\n");
+        }));
         streaming.handleStreamFinished("\nEPH_STATUS:200\n");
     }
 

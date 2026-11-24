@@ -63,7 +63,7 @@ ShellRoot {
                 root.finish(false, "provider error signal was unbounded, unsafe, or identity-mismatched");
                 return;
             }
-            streaming.handleStreamChunk("data: [DONE]\n");
+            streaming.handleStreamLine("data: [DONE]");
             lifecycleCheck.restart();
         }
 

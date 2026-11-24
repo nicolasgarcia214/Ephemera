@@ -109,7 +109,7 @@ ShellRoot {
         else if (phase === "native-ollama")
             startSplitUtf8();
         else {
-            streaming.handleStreamChunk("data: [DONE]\\n");
+            streaming.handleStreamLine("data: [DONE]\\n");
             if (!check(finalizedCount === 5,
                     "completion markers or process exit finalized more than once")) return;
             finish(true, "usage ordering, missing usage fallback, native completion, split UTF-8 decoding, and exactly-once finalization passed");
