@@ -192,7 +192,7 @@ function trackedFiles() {
     return execFileSync("git", ["ls-files", "-z"], { cwd: ROOT, encoding: "utf8" })
         .split("\0")
         .filter(Boolean)
-        .filter(file => fs.existsSync(path.join(ROOT, file)));
+        .filter(file => fs.statSync(path.join(ROOT, file), { throwIfNoEntry: false })?.isFile());
 }
 
 function survey() {
