@@ -52,6 +52,7 @@ ephemera/
 │   │   ├── Mcp.js                       # MCP transport/tool normalization helpers
 │   │   ├── McpSchema.js                 # Bounded JSON Schema validation
 │   │   ├── Submission.js                # Shared submission-readiness contract
+│   │   ├── UnicodeSafety.js             # Unsafe formatting code point predicate shared by Mcp.js and Providers.js
 │   │   ├── VariantStore.js              # Pure-function variant store operations (save, get, evict)
 │   │   ├── ErrorHints.js                # Contextual error hints for HTTP/curl error codes
 │   │   └── Backoff.js                   # Exponential error cooldown with jitter

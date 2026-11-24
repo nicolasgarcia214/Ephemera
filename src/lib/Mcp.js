@@ -1,4 +1,5 @@
 .pragma library
+.import "UnicodeSafety.js" as UnicodeSafety
 
 function trustKey(url, command) {
     return String(command || "").trim() + "\n" + String(url || "").trim();
@@ -501,23 +502,6 @@ function parseToolCall(toolCall) {
     };
 }
 
-function _isUnsafeReviewCodePoint(codePoint) {
-    return codePoint === 0x00ad || codePoint === 0x034f || codePoint === 0x061c
-        || (codePoint >= 0x115f && codePoint <= 0x1160)
-        || (codePoint >= 0x17b4 && codePoint <= 0x17b5)
-        || (codePoint >= 0x180b && codePoint <= 0x180f)
-        || (codePoint >= 0x200b && codePoint <= 0x200f)
-        || (codePoint >= 0x2028 && codePoint <= 0x202e)
-        || (codePoint >= 0x2060 && codePoint <= 0x206f)
-        || codePoint === 0x3164
-        || (codePoint >= 0xfe00 && codePoint <= 0xfe0f)
-        || codePoint === 0xfeff || codePoint === 0xffa0
-        || (codePoint >= 0xfff0 && codePoint <= 0xfffb)
-        || (codePoint >= 0x1bca0 && codePoint <= 0x1bca3)
-        || (codePoint >= 0x1d173 && codePoint <= 0x1d17a)
-        || (codePoint >= 0xe0000 && codePoint <= 0xe0fff);
-}
-
 function _reviewEscape(codePoint) {
     var hex = codePoint.toString(16);
     if (codePoint > 0xffff)
@@ -555,7 +539,8 @@ function _escapeReviewControls(text) {
             || (codePoint >= 0x0b && codePoint <= 0x0c)
             || (codePoint >= 0x0e && codePoint <= 0x1f)
             || (codePoint >= 0x7f && codePoint <= 0x9f);
-        if (unpairedSurrogate || unsafeControl || _isUnsafeReviewCodePoint(codePoint))
+        if (unpairedSurrogate || unsafeControl
+                || UnicodeSafety.isUnsafeFormattingCodePoint(codePoint))
             result += _reviewEscape(codePoint);
         else
             result += value.substr(i, width);

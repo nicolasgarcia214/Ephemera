@@ -52,7 +52,12 @@ function assertDeepEqual(actual, expected, message) {
 function loadPragmaLib(filename) {
     var src = fs.readFileSync(path.join(__dirname, "..", filename), "utf8");
     var context = { console: { warn: function() {} } };
-    vm.runInNewContext(src.replace(/^\.pragma library/, ""), context, { filename: filename });
+    var body = src.replace(/^\.pragma library/, "")
+        .replace(/^\.import "([^"]+)" as (\w+)$/gm, function(directive, file, alias) {
+            context[alias] = loadPragmaLib(path.posix.join(path.posix.dirname(filename), file));
+            return "";
+        });
+    vm.runInNewContext(body, context, { filename: filename });
     return context;
 }
 
@@ -67,6 +72,44 @@ var VariantStore = loadPragmaLib("src/lib/VariantStore.js");
 var ChatPersistence = loadPragmaLib("src/lib/ChatPersistence.js");
 var ErrorHints = loadPragmaLib("src/lib/ErrorHints.js");
 var Submission = loadPragmaLib("src/lib/Submission.js");
+var UnicodeSafety = loadPragmaLib("src/lib/UnicodeSafety.js");
+
+section("Shared unsafe formatting code point predicate");
+(function() {
+    var unsafe = [0x00ad, 0x034f, 0x061c, 0x115f, 0x1160, 0x17b4, 0x180f, 0x200b,
+        0x200f, 0x2028, 0x202e, 0x2060, 0x206f, 0x3164, 0xfe00, 0xfe0f, 0xfeff,
+        0xffa0, 0xfff0, 0xfffb, 0x1bca0, 0x1d173, 0x1d17a, 0xe0000, 0xe0fff];
+    for (var ui = 0; ui < unsafe.length; ui++)
+        assert(UnicodeSafety.isUnsafeFormattingCodePoint(unsafe[ui]),
+            "reports U+" + unsafe[ui].toString(16) + " unsafe");
+
+    var safe = [0x0000, 0x0020, 0x0041, 0x00ac, 0x00ae, 0x115e, 0x1161, 0x200a,
+        0x2010, 0x2027, 0x202f, 0x205f, 0x2070, 0xfdff, 0xfe10, 0xffef, 0xfffc,
+        0xfffd, 0x1bc9f, 0x1bca4, 0x1d172, 0x1d17b, 0x1f600, 0xdffff, 0xe1000,
+        0x10ffff];
+    for (var si = 0; si < safe.length; si++)
+        assert(!UnicodeSafety.isUnsafeFormattingCodePoint(safe[si]),
+            "reports U+" + safe[si].toString(16) + " safe");
+
+    var unsafeCount = 0;
+    for (var codePoint = 0; codePoint <= 0x10ffff; codePoint++) {
+        if (UnicodeSafety.isUnsafeFormattingCodePoint(codePoint))
+            unsafeCount++;
+    }
+    assert(unsafeCount === 4179,
+        "reports exactly 4179 unsafe code points, got " + unsafeCount);
+
+    var importers = { "Mcp.js": Mcp, "Providers.js": Providers };
+    for (var name in importers) {
+        var lib = importers[name];
+        var librarySource = fs.readFileSync(
+            path.join(__dirname, "..", "src/lib", name), "utf8");
+        assert(typeof lib.UnicodeSafety.isUnsafeFormattingCodePoint === "function",
+            name + " imports the shared predicate under its alias");
+        assert(librarySource.indexOf("0x034f") === -1,
+            name + " keeps no private copy of the code point ranges");
+    }
+})();
 
 section("Submission readiness contract");
 (function() {
