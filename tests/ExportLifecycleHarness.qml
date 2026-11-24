@@ -11,6 +11,8 @@ ShellRoot {
     property bool overlapRejected: false
     property bool messageOverlapRejected: false
     property var seenExportIds: ({})
+    property string collisionDestination: ""
+    property string collisionDirectory: ""
     readonly property string runtimeDir: Quickshell.env("XDG_RUNTIME_DIR")
 
     function finish(success, message) {
@@ -86,7 +88,7 @@ ShellRoot {
         phase = "overlap";
         streaming._fileExportCommand = [
             "sh", "-c",
-            "umask 077; tmp=$(mktemp \"$1.tmp.XXXXXX\") || exit; trap 'rm -f -- \"$tmp\"' 0 1 2 15; exec 3> \"$tmp\" || exit; chmod 0600 \"/proc/$$/fd/3\" || exit; cat >&3 || exit; exec 3>&-; ln \"$tmp\" \"$1\" || exit; rm -f -- \"$tmp\" || exit; trap - 0 1 2 15",
+            "umask 077; tmp=$(mktemp \"$1.tmp.XXXXXX\") || exit; trap 'rm -f -- \"$tmp\"' 0 1 2 15; exec 3> \"$tmp\" || exit; chmod 0600 \"/proc/$$/fd/3\" || exit; cat >&3 || exit; exec 3>&-; ln -T \"$tmp\" \"$1\" || exit; rm -f -- \"$tmp\" || exit; trap - 0 1 2 15",
             "ephemera-export"
         ];
         if (!streaming.exportToClipboard("CLIPBOARD_SLOW")) {
@@ -108,6 +110,25 @@ ShellRoot {
     function startFifoCollision() {
         phase = "file-fifo-collision";
         fifoCreator.running = true;
+    }
+
+    function startDirectoryCollision() {
+        phase = "file-directory-collision";
+        collisionDestination = runtimeDir + "/export-directory.md";
+        collisionDirectory = collisionDestination;
+        directoryFixture.command = ["mkdir", collisionDirectory];
+        directoryFixture.running = true;
+    }
+
+    function startSymlinkDirectoryCollision() {
+        phase = "file-symlink-directory-collision";
+        collisionDestination = runtimeDir + "/export-symlink.md";
+        collisionDirectory = runtimeDir + "/export-symlink-target";
+        directoryFixture.command = [
+            "sh", "-c", "mkdir \"$1\" && ln -s \"$1\" \"$2\"",
+            "_", collisionDirectory, collisionDestination
+        ];
+        directoryFixture.running = true;
     }
 
     function startMessageSuccess() {
@@ -192,6 +213,36 @@ ShellRoot {
         }
     }
 
+    Process {
+        id: directoryFixture
+        running: false
+        onExited: exitCode => {
+            if (!root.check(exitCode === 0,
+                            "could not create fixture for " + root.phase)) return;
+            if (!streaming.exportToFile("REPLACEMENT", root.runtimeDir,
+                                        root.collisionDestination))
+                root.finish(false, root.phase + " fixture was rejected before launch");
+        }
+    }
+
+    Process {
+        id: directoryVerifier
+        running: false
+        command: [
+            "sh", "-c",
+            "test -d \"$2\" && test -z \"$(ls -A \"$2\")\" || exit 1; for tmp in \"$1\".tmp.*; do test ! -e \"$tmp\" || exit 1; done",
+            "_", root.collisionDestination, root.collisionDirectory
+        ]
+        onExited: exitCode => {
+            if (!root.check(exitCode === 0,
+                            root.phase + " created a file inside the directory or left a temporary file")) return;
+            if (root.phase === "file-directory-collision")
+                Qt.callLater(root.startSymlinkDirectoryCollision);
+            else
+                Qt.callLater(root.startFileFailure);
+        }
+    }
+
     ExportService {
         id: streaming
 
@@ -243,7 +294,12 @@ ShellRoot {
             } else if (root.phase === "file-fifo-collision") {
                 if (!root.check(exportKind === "file" && message.indexOf("exit code") >= 0,
                                 "FIFO collision was not rejected promptly")) return;
-                Qt.callLater(root.startFileFailure);
+                Qt.callLater(root.startDirectoryCollision);
+            } else if (root.phase === "file-directory-collision"
+                       || root.phase === "file-symlink-directory-collision") {
+                if (!root.check(exportKind === "file" && message.indexOf("exit code") >= 0,
+                                root.phase + " was not reported as failed")) return;
+                directoryVerifier.running = true;
             } else if (root.phase === "file-start-failure") {
                 if (!root.check(exportKind === "file"
                                 && message.indexOf("Could not start file export") >= 0,

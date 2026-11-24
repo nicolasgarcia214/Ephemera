@@ -14,7 +14,7 @@ Item {
     property var _clipboardExportCommand: ["wl-copy", "--"]
     property var _fileExportCommand: [
         "sh", "-c",
-        "umask 077; tmp=$(mktemp \"$1.tmp.XXXXXX\") || exit; trap 'rm -f -- \"$tmp\"' 0 1 2 15; exec 3> \"$tmp\" || exit; chmod 0600 \"/proc/$$/fd/3\" || exit; cat >&3 || exit; exec 3>&-; ln \"$tmp\" \"$1\" || exit; rm -f -- \"$tmp\" || exit; trap - 0 1 2 15",
+        "umask 077; tmp=$(mktemp \"$1.tmp.XXXXXX\") || exit; trap 'rm -f -- \"$tmp\"' 0 1 2 15; exec 3> \"$tmp\" || exit; chmod 0600 \"/proc/$$/fd/3\" || exit; cat >&3 || exit; exec 3>&-; ln -T \"$tmp\" \"$1\" || exit; rm -f -- \"$tmp\" || exit; trap - 0 1 2 15",
         "ephemera-export"
     ]
     readonly property bool exportBusy: _activeExportId.length > 0
