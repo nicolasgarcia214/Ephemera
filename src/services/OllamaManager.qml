@@ -12,7 +12,6 @@ Item {
     readonly property bool localProcessManaged:
         Providers.isManagedLocalOllamaUrl(ollamaUrl)
 
-    // --- Ollama state (exposed to parent) ---
     property ListModel availableModels: ListModel {}
     property bool ollamaWeStarted: false
     property bool ollamaStartPending: false
@@ -20,9 +19,6 @@ Item {
     property bool ollamaReady: false
     property int ollamaRetries: 0
     readonly property int ollamaMaxRetries: 15
-    // curl enforces this against transferred bytes before StdioCollector retains
-    // the response. QML string lengths are decoded UTF-16 code units and are not
-    // suitable for enforcing a raw byte limit on multi-byte output.
     readonly property int _probeResponseLimitBytes: 64 * 1024
     readonly property int _probeTimeoutSeconds: 5
     readonly property int _curlFileSizeExceededExitCode: 63
@@ -88,8 +84,6 @@ Item {
             return false;
         _restartAfterExit = false;
         _invalidateProbes();
-        // External Ollama: use pkill -x for exact process name match (not -f substring)
-        // to avoid killing unrelated processes that merely contain "ollama" in their cmdline
         ollamaKiller.command = ["pkill", "-x", "-U", Quickshell.env("USER") || "", "ollama"];
         ollamaKiller.running = true;
         ollamaReady = false;
@@ -108,8 +102,6 @@ Item {
         ollamaIdleTimer.stop();
     }
 
-    // A stream (including one paused on MCP tool approval) defers shutdown by
-    // a full idle interval instead of cancelling it.
     function _handleIdleTimeout() {
         if (!active || !ollamaWeStarted) return;
         if (isStreaming)
@@ -172,8 +164,6 @@ Item {
     function _isUrlSafe() {
         return Providers.validateOllamaUrl(ollamaUrl).valid;
     }
-
-    // --- Internal ---
 
     function _probeCommand(path) {
         return [_probeExecutable, "-q", "-sS", "--proto", "=http,https",
@@ -311,8 +301,6 @@ Item {
         _terminationPending = true;
         _restartAfterExit = restartAfterExit === true && active;
         if (ollamaProcess.running) {
-            // Process.running targets the exact child we launched. Ownership
-            // remains set until onExited confirms that child terminated.
             ollamaProcess.running = false;
             return;
         }
@@ -356,7 +344,6 @@ Item {
             ollamaKiller.running = true;
             _ollamaPid = -1;
         }
-        // No pkill fallback — if we lost the PID, we don't kill random processes
     }
 
     function ping() {
@@ -419,8 +406,6 @@ Item {
         }
     }
 
-    // --- Processes ---
-
     Process {
         id: ollamaProcess
         command: ["ollama", "serve"]
@@ -434,8 +419,6 @@ Item {
                     Qt.callLater(function() { ollamaProcess.running = false; });
             } else if (!running && !root._terminationPending
                        && (root.ollamaWeStarted || root.ollamaStartPending)) {
-                // QProcess may omit exited when launch itself fails. Normal
-                // owned shutdowns are finalized only by onExited below.
                 Qt.callLater(root._finishOwnedProcessExit);
             }
         }
@@ -555,8 +538,6 @@ Item {
             }
         }
     }
-
-    // --- Timers ---
 
     Timer {
         id: retryTimer

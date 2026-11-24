@@ -4,7 +4,6 @@ import Quickshell.Io
 Item {
     id: root
 
-    // --- Export state ---
     property int _exportGeneration: 0
     property string _activeExportId: ""
     property string _activeExportKind: ""
@@ -40,10 +39,6 @@ Item {
     }
 
     function exportToFile(markdownText, homeDir, filename) {
-        // Write a private sibling temporary, then publish it with an atomic hard
-        // link. link(2) fails for every pre-existing inode type (including FIFOs)
-        // without opening the destination. The fd-bound chmod defeats inherited
-        // default ACLs and avoids a path swap while writing.
         return _beginExport("file", filename, markdownText,
                             _fileExportCommand.concat([filename]), exportFileWriter);
     }

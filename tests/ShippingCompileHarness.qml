@@ -65,7 +65,6 @@ ShellRoot {
     EphemeraDaemon {
         id: shippingDaemon
 
-        // DMS adds these properties to the daemon instance before creation.
         property string pluginId: "ephemera-shipping-compile-test"
         property var pluginData: ({})
         property var pluginService: PluginService
@@ -76,9 +75,6 @@ ShellRoot {
         pluginId: "ephemera-shipping-compile-test"
     }
 
-    // The real daemon owns the production coordinator. This explicit panel also
-    // materializes the same content graph independently of the screen-backed
-    // Variants delegate.
     EphemeraPanel {
         id: productionPanel
         visible: false
@@ -93,8 +89,6 @@ ShellRoot {
         }
     }
 
-    // Explicit instances cover components hidden behind empty models, lazy
-    // loaders, provider conditionals, and popup-only paths.
     Item {
         id: explicitComponents
         visible: false

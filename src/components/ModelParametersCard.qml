@@ -60,7 +60,6 @@ SettingsCard {
         width: parent.width
         spacing: Theme.spacingS
 
-        // System prompt
         StyledText {
             text: "System Prompt"
             font.pixelSize: Theme.fontSizeSmall
@@ -142,7 +141,6 @@ SettingsCard {
             }
         }
 
-        // Temperature
         Item { width: 1; height: Theme.spacingXS }
         Row {
             width: parent.width
@@ -196,7 +194,6 @@ SettingsCard {
             }
         }
 
-        // Max Tokens
         Item { width: 1; height: Theme.spacingXS }
         Row {
             width: parent.width
@@ -257,7 +254,6 @@ SettingsCard {
             }
         }
 
-        // Max Context Turns
         Item { width: 1; height: Theme.spacingXS }
         Row {
             width: parent.width
@@ -305,7 +301,6 @@ SettingsCard {
             }
         }
 
-        // Request Timeout
         Item { width: 1; height: Theme.spacingXS }
         Row {
             width: parent.width

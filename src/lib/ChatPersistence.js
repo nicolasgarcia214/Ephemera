@@ -1,7 +1,5 @@
 .pragma library
 
-// Persisted chat bounds. These apply only to snapshots stored through
-// PluginService; the live message model and active transport remain untouched.
 var maxMessages = 200;
 var maxVariantsPerMessage = 10;
 var maxContentBytes = 32768;
@@ -11,9 +9,6 @@ var maxIdBytes = 256;
 var maxSerializedBytes = 1048576;
 var truncationMarker = "\n\n[Truncated when saved by Ephemera.]";
 
-// Validation work is capped before walking attacker-controlled collections.
-// Ordinary oversized state below these inspection ceilings is normalized and
-// pruned; inputs beyond them are treated as structurally malicious.
 var maxInputMessages = 1000;
 var maxInputVariantKeys = 1000;
 var maxInputVariantsPerMessage = 100;
@@ -229,7 +224,6 @@ function _sanitizeMessage(message, result) {
         modelName: _sanitizeText(
             message.modelName || "", maxModelBytes, result, false)
     };
-    // Only failed responses carry an error, kept apart from partial content.
     if (status === "error" && message.errorText)
         normalized.errorText = _sanitizeText(
             message.errorText, maxContentBytes, result, true);
@@ -308,7 +302,6 @@ function _sanitizeVariants(message, rawVariants, result) {
     return variants;
 }
 
-// Make a message display a stored variant, including the error it failed with.
 function _showVariant(message, variant) {
     message.content = variant.content;
     message.thinking = variant.thinking;
@@ -435,8 +428,6 @@ function _normalize(payload, version) {
             newest = _mergeNewestTurns(turns, 1);
         }
 
-        // Payload size only grows as older turns are added. Find the largest
-        // suffix that fits without serializing every growing prefix.
         var low = 1;
         var high = turns.length;
         var best = 0;
@@ -479,12 +470,6 @@ function _normalize(payload, version) {
     return result;
 }
 
-/**
- * Return the UTF-8 byte length of a string.
- *
- * @param {string} value - Text to measure.
- * @returns {number} UTF-8 bytes.
- */
 function utf8ByteLength(value) {
     var bytes = 0;
     for (var i = 0; i < value.length; i++) {
@@ -509,27 +494,11 @@ function utf8ByteLength(value) {
     return bytes;
 }
 
-/**
- * Validate and normalize a versioned or migrated chat payload without mutating it.
- *
- * @param {Object} payload - Candidate persisted state.
- * @param {number} version - Expected state version.
- * @returns {?{payload: Object, changed: boolean}} Bounded state, or null.
- */
 function prepareState(payload, version) {
     if (!_validateStructure(payload, version)) return null;
     return _normalize(payload, version);
 }
 
-/**
- * Build a bounded persistence snapshot from a recent live-model window.
- *
- * @param {Array} messages - Completed recent messages in display order.
- * @param {Object} variantStore - Live variant side-channel map.
- * @param {number} version - State schema version.
- * @param {boolean} wasTrimmed - Preserve an earlier storage-limit notice.
- * @returns {?{payload: Object, changed: boolean}} Bounded snapshot, or null.
- */
 function createSnapshot(messages, variantStore, version, wasTrimmed) {
     if (!Array.isArray(messages) || !_isObject(variantStore)) return null;
     var scopedVariants = {};

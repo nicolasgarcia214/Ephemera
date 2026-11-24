@@ -9,6 +9,7 @@ Source lives in `src/`. Hot-reload with `dms restart` (full restart required —
 Depends on parent config modules: `qs.Common` (Theme), `qs.Widgets` (Dank* components, StyledText), `qs.Services` (PluginService).
 
 Unit and source-contract tests: `node tests/run_tests.js`
+Comment ban: `node tests/lint_comments.js`
 MCP transport, QML lifecycle, and shipping compile tests: `tests/run_qml_tests.sh` (requires Quickshell)
 Live panel geometry test: `tests/run_panel_qml_test.sh` (requires Quickshell and an active Wayland compositor)
 
@@ -36,9 +37,9 @@ EphemeraService.qml is the **coordinator** that owns message state (`messagesMod
 
 - **Root IDs** — root items: `id: root`, delegate roots: `id: delegate`.
 - **Private properties** — prefix with `_` (e.g., `_streamContent`).
-- **JS libraries** — `.js` files in `src/lib/` are `.pragma library` pure-function modules. Import with namespace aliases (`as Providers`). All public functions have JSDoc comments.
+- **JS libraries** — `.js` files in `src/lib/` are `.pragma library` pure-function modules. Import with namespace aliases (`as Providers`).
 - **State centralization** — shared conversation, variant, and provider state lives in EphemeraService.qml. Child services own bounded lifecycle/transport state and communicate outputs through signals and narrow facade properties.
-- **Property grouping** — use `// --- Section name ---` comment headers.
+- **No comments** — source files carry none ([ADR 1](docs/adr/0001-ban-code-comments.md)). Record a decision in `docs/adr/`, file a shortcut as an issue, and put everything else in names and tests. `/delete-comment` repeats the audit.
 - **Theme** — never hardcode colors/spacing/fonts. Use `Theme` singleton from `qs.Common`.
 - **UI signals** — extracted components communicate with parent via signals, not direct property writes.
 

@@ -61,8 +61,6 @@ elif command -v weston >/dev/null 2>&1; then
         exit 1
     fi
     SHIPPING_WAYLAND_SOCKET="$WESTON_RUNTIME/ephemera-test"
-    # Pixman Weston exposes no EGL context. Force Qt Quick's software scene
-    # graph so animations and input-mask geometry still advance in headless CI.
     TEST_QT_QUICK_BACKEND=software
 fi
 CONFIG_DIR="$RUNTIME_DIR/config"

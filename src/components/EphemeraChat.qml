@@ -125,7 +125,6 @@ Item {
         anchors.fill: parent
         spacing: Theme.spacingM
 
-        // -- Header --
         ChatHeader {
             id: header
             width: parent.width
@@ -146,7 +145,6 @@ Item {
             onHideRequested: root.hideRequested()
         }
 
-        // -- Message area --
         Rectangle {
             id: messageArea
             width: parent.width
@@ -173,7 +171,6 @@ Item {
                 onCopyRequested: msgId => aiService.copyMessage(msgId)
             }
 
-            // Missing API key banner
             Rectangle {
                 anchors.top: parent.top
                 anchors.topMargin: Theme.spacingM
@@ -225,7 +222,6 @@ Item {
                 }
             }
 
-            // Ollama starting banner
             Rectangle {
                 anchors.bottom: parent.bottom
                 anchors.bottomMargin: Theme.spacingM
@@ -270,7 +266,6 @@ Item {
                 }
             }
 
-            // Breathing empty state
             Column {
                 id: emptyState
                 anchors.centerIn: parent
@@ -336,7 +331,6 @@ Item {
                 }
             }
 
-            // Scroll-to-bottom pill
             Rectangle {
                 id: scrollPill
                 anchors.horizontalCenter: parent.horizontalCenter
@@ -420,7 +414,6 @@ Item {
             }
         }
 
-        // -- Composer --
         ChatComposer {
             id: composerArea
             aiService: root.aiService
@@ -434,14 +427,12 @@ Item {
         }
     }
 
-    // -- Toast notification --
     ChatToast {
         id: chatToast
         anchors.fill: parent
         bottomMargin: composerArea.height + Theme.spacingL
     }
 
-    // -- Settings overlay with fade in/out --
     Loader {
         id: settingsPanelLoader
         anchors.fill: parent
@@ -487,7 +478,6 @@ Item {
         }
     }
 
-    // -- Clear chat dim overlay (scoped to widget, not full window) --
     Rectangle {
         anchors.fill: parent
         color: Theme.withAlpha(Theme.onSurface, 0.4)
@@ -495,7 +485,6 @@ Item {
         z: 99
     }
 
-    // -- Clear chat confirmation dialog --
     ClearChatDialog {
         id: clearConfirmDialog
         onConfirmed: {

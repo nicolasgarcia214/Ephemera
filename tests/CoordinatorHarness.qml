@@ -135,7 +135,6 @@ ShellRoot {
         if (!check(exported.indexOf("partial answer\n\n> Error: Request timed out.") >= 0,
                 "export dropped the error text of a failed response")) return;
 
-        // The failed variant keeps its error after another variant is shown.
         service.messagesModel.setProperty(1, "variantCount", 2);
         service._saveVariant(failedId, 1, "second answer", "", "custom-model", "");
         service.switchVariant(failedId, 1);
@@ -168,8 +167,6 @@ ShellRoot {
             requestPayload: ""
         });
 
-        // PluginService emits synchronously. This must not re-enter loadSettings
-        // when clearing persisted history as part of the provider transaction.
         PluginService.savePluginData("ephemera", "provider", "ollama");
         if (!check(service.provider === "ollama"
                 && service.messagesModel.count === 0
@@ -233,7 +230,6 @@ ShellRoot {
         service.thinkingEnabled = true;
         service.setOllamaUrl("http://localhost:11434");
 
-        // A replacement launch is the same coordinator path used by retries.
         service._launchCurl();
         var replacementPayload = JSON.parse(
             service.messagesModel.get(streamIndex).requestPayload);

@@ -13,7 +13,6 @@ Popup {
     padding: Theme.spacingL
     modal: true
     dim: false
-    // Default focus is the safe choice: Ctrl+L then Enter must not wipe the chat.
     onOpened: cancelBtn.forceActiveFocus()
 
     background: Rectangle {

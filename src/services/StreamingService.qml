@@ -11,12 +11,10 @@ import "../lib/McpSchema.js" as McpSchema
 Item {
     id: root
 
-    // --- Input from coordinator ---
     property string provider: "ollama"
     property string ollamaUrl: "http://localhost:11434"
     property int timeout: 300
 
-    // --- Streaming state ---
     property bool isStreaming: false
     property string activeStreamId: ""
     property string _activeProvider: ""
@@ -87,13 +85,11 @@ Item {
     property int lastHttpStatus: 0
     property bool lastRequestFailed: false
 
-    // --- Error backoff state ---
     property real _cooldownUntil: 0
     property int _consecutiveErrors: 0
     readonly property int _backoffBaseMs: 2000
     readonly property int _backoffMaxMs: 30000
 
-    // --- Signals to coordinator ---
     signal streamContentUpdated(string streamId, string content, int variantIndex)
     signal streamThinkingUpdated(string streamId, string thinking, int variantIndex)
     signal streamFinalized(string streamId, string stats, var result)
@@ -103,8 +99,6 @@ Item {
     signal mcpToolCallRequested(string toolName, var toolArguments, var approvedContracts,
                                 string streamId, string streamProvider, int streamGeneration)
     signal mcpToolCallCancellationRequested(var callId, string reason)
-
-    // --- Public API ---
 
     function isInErrorCooldown() {
         return errorCooldownActive;
@@ -166,8 +160,6 @@ Item {
             generation: streamGeneration
         };
         if (_processActive) {
-            // Process.running=false requests termination asynchronously. Keep
-            // exactly one identity-bound launch queued until onExited.
             _pendingLaunch = launch;
             chatFetcher.running = false;
             return true;
@@ -220,8 +212,6 @@ Item {
             && _fetchGeneration === _completedFetchGeneration;
     }
 
-    // SplitParser delivers every line, including an unterminated tail,
-    // before Process emits exited, so exit alone completes the transport.
     function _finishCurlProcess(exitCode, failedToStart) {
         if (!_processActive)
             return;
@@ -231,24 +221,17 @@ Item {
         var output = _fetchOutput;
         var queued = _pendingLaunch;
 
-        // Clear the finished transport before emitting any completion signal so
-        // observers can immediately launch the next process or inspect idle state.
         _processActive = false;
         _pendingLaunch = null;
         _fetchStreamId = "";
         _fetchProvider = "";
         _fetchGeneration = -1;
 
-        // A replacement owns the active identity now; drain the old process
-        // without applying its result or exit status to the new request.
         if (queued && _startCurl(queued))
             return;
         if (!fetchMatches)
             return;
 
-        // Process exit is authoritative. A syntactically complete partial body
-        // must not be accepted when curl reports timeout, truncation, or another
-        // transport failure after stdout has drained.
         if (failedToStart) {
             _markError(fetchStreamId,
                 "Could not start the response process. Make sure curl is installed and available in PATH.");
@@ -360,7 +343,6 @@ Item {
             cancel();
     }
 
-    // --- Internal: stream processing ---
     function handleStreamChunk(chunk) {
         if (!isStreaming)
             return;
@@ -746,7 +728,6 @@ Item {
         streamThinkingUpdated(streamId, _streamThinking, _streamVariantIndex);
     }
 
-    // Emit text held back while detecting a partial <think> tag.
     function _flushTagBuffer(streamId) {
         if (_tagBuffer.length > 0) {
             if (_insideThinkTag)
@@ -780,7 +761,6 @@ Item {
     function _markError(streamId, message) {
         if (!isStreaming || !streamId || activeStreamId !== streamId)
             return false;
-        // Partial output stays the message body; the error travels separately.
         _flushTagBuffer(streamId);
         _pendingLaunch = null;
         _awaitingUsageCompletion = false;
@@ -801,7 +781,6 @@ Item {
         if (streamStartTime === 0) return "";
         var elapsed = (Date.now() - streamStartTime) / 1000;
         var label = elapsed.toFixed(1) + "s";
-        // Prefer API-reported token count (accurate); fall back to delta count (approximate)
         var tokens = _hasApiOutputTokens ? _apiOutputTokens : streamTokenCount;
         if (tokens > 0 && elapsed > 0.5) {
             var tps = tokens / elapsed;
@@ -821,13 +800,8 @@ Item {
     }
 
     function _handleFetchLine(data) {
-        // SplitParser strips the separator; restore it for SSE line parsing
-        // and the raw body used for status and non-streaming fallbacks.
         var chunk = data + "\n";
         var fetchIsActive = _fetchMatchesActiveStream();
-        // Enforce the cap for the process even after its stream identity has
-        // been cancelled. Stale output remains inert, but it cannot grow
-        // without bound while termination drains.
         _fetchReceivedLength += chunk.length;
         if (_fetchReceivedLength > _maxFetchOutputLength) {
             chatFetcher.running = false;
@@ -843,8 +817,6 @@ Item {
             handleStreamChunk(chunk);
     }
 
-    // --- Processes ---
-
     Process {
         id: chatFetcher
         running: false
@@ -859,15 +831,10 @@ Item {
                     root.pendingStdinBody = "";
                 }
             } else if (root._processActive) {
-                // Quickshell emits runningChanged, but not exited, when QProcess
-                // fails to start. Complete the lifecycle here so future launches
-                // cannot remain queued behind a process that never existed.
                 root._finishCurlProcess(-1, true);
             }
         }
 
-        // Splitting on the newline byte keeps multi-byte UTF-8 sequences
-        // whole; decoding arbitrary pipe reads would corrupt split characters.
         stdout: SplitParser {
             onRead: data => root._handleFetchLine(data)
         }

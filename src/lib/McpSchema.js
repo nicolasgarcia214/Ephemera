@@ -62,8 +62,6 @@ function _isBoundedJsonValue(value, depth, budget, ancestors) {
     var valid = true;
     var keys = Object.keys(value);
     if (Array.isArray(value)) {
-        // JSON.stringify silently turns holes into null and ignores named array
-        // properties. Reject both so the reviewed value is exactly what is sent.
         if (keys.length !== value.length) {
             valid = false;
         } else {
@@ -364,13 +362,6 @@ function _matchesJsonSchema(value, schema, depth, budget) {
     return true;
 }
 
-/**
- * Return an explanation when an advertised input schema cannot be validated
- * exactly by the bounded local validator.
- *
- * @param {Object|undefined} schema - Advertised MCP input schema.
- * @returns {string} Empty when supported, otherwise a user-safe explanation.
- */
 function inputSchemaSupportError(schema) {
     if (schema === undefined)
         return "Input schema is required.";
@@ -378,13 +369,6 @@ function inputSchemaSupportError(schema) {
     return error ? "Input schema " + error + "." : "";
 }
 
-/**
- * Validate model-provided arguments against the exact advertised input schema.
- *
- * @param {Object} tool - Current advertised tool contract.
- * @param {Object} argumentsValue - Parsed tool arguments.
- * @returns {{ valid: boolean, error: string }} Validation result.
- */
 function validateToolArguments(tool, argumentsValue) {
     if (!argumentsValue || typeof argumentsValue !== "object" || Array.isArray(argumentsValue))
         return { valid: false, error: "MCP tool arguments must be an object." };
@@ -414,13 +398,6 @@ function validateToolArguments(tool, argumentsValue) {
     return { valid: true, error: "" };
 }
 
-/**
- * Return an explanation when an advertised output schema cannot be validated
- * exactly by the bounded local validator.
- *
- * @param {Object|undefined} schema - Advertised MCP output schema.
- * @returns {string} Empty when supported, otherwise a user-safe explanation.
- */
 function outputSchemaSupportError(schema) {
     if (schema === undefined)
         return "";
@@ -428,17 +405,6 @@ function outputSchemaSupportError(schema) {
     return error ? "Output schema " + error + "." : "";
 }
 
-/**
- * Validate the MCP result envelope and any advertised structured output.
- *
- * This intentionally supports the bounded structural JSON Schema vocabulary
- * used by MCP tool outputs without evaluating remote regular expressions or
- * resolving remote references.
- *
- * @param {Object} tool - Current advertised tool contract.
- * @param {Object} result - tools/call result payload.
- * @returns {{ valid: boolean, error: string }} Validation result.
- */
 function validateToolResult(tool, result) {
     if (!result || typeof result !== "object" || Array.isArray(result))
         return { valid: false, error: "MCP tool returned an invalid result envelope." };

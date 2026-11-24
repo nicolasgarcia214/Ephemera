@@ -57,8 +57,11 @@ ephemera/
 │   │   └── Backoff.js                   # Exponential error cooldown with jitter
 │   └── runtime/
 │       └── McpFetchGuard.cjs             # Revalidates and constrains the reviewed bridge at runtime
+├── docs/
+│   └── adr/                             # Architecture decision records
 ├── tests/
 │   ├── run_tests.js                     # JS, source-contract, and geometry unit tests
+│   ├── lint_comments.js                 # Comment ban with a per-file ratchet
 │   ├── run_qml_tests.sh                 # MCP guard plus QML lifecycle/compile harnesses
 │   ├── run_panel_qml_test.sh            # Live Wayland panel geometry harness
 │   ├── *Harness.qml                     # Focused lifecycle and integration harnesses
@@ -415,8 +418,9 @@ These are non-negotiable design decisions:
 
 ## Code style
 
-- No automated linter or formatter. Follow existing patterns.
+- No formatter. Follow existing patterns.
+- No comments in source files. `node tests/lint_comments.js` fails on any comment line above a file's baseline, and the baseline only goes down. Shebangs, `shellcheck`, `qmllint`, and `x-release-please` markers are exempt.
 - Use `Theme.*` for colors, typography, and layout spacing. Fixed control dimensions are acceptable only when intentional and consistent with existing components.
 - Prefer `Behavior on property` for reactive animations.
 - Keep JS logic in `.pragma library` files under `src/lib/`; keep QML files focused on UI and state.
-- Security-sensitive code should be commented with the rationale.
+- Record the rationale for security-sensitive code in an ADR under `docs/adr/`, anchored to symbol names.

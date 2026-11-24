@@ -27,6 +27,8 @@ jobs:
         with:
           node-version: 24.17.0
       - run: node tests/run_tests.js
+      - name: Lint for comments
+        run: node tests/lint_comments.js
 
   qml-lifecycle:
     runs-on: ubuntu-latest

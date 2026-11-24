@@ -62,7 +62,6 @@ SettingsCard {
 
         Repeater {
             id: providerRepeater
-            // Show key status for providers that need an API key
             model: {
                 var providers = Providers.getProviderNames();
                 var items = [];
@@ -191,7 +190,6 @@ SettingsCard {
                 AccordionSection {
                     show: aiService._keyringAvailable
 
-                    // -- Stored confirmation --
                     Row {
                         width: parent.width
                         spacing: Theme.spacingS
@@ -226,7 +224,6 @@ SettingsCard {
                         }
                     }
 
-                    // -- Key input --
                     Row {
                         width: parent.width
                         spacing: Theme.spacingS

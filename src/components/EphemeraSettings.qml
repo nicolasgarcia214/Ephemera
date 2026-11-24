@@ -38,7 +38,6 @@ Item {
             anchors.margins: Theme.spacingM
             spacing: Theme.spacingM
 
-            // Header
             RowLayout {
                 Layout.fillWidth: true
                 spacing: Theme.spacingL

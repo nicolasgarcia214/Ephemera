@@ -8,9 +8,6 @@ ShellRoot {
     property int testStep: 0
     property int toggleCount: 0
     property bool finished: false
-    // Headless Weston has no layer-shell protocol. It can verify the QML
-    // geometry, but actual surface sizing and mask placement need a compositor
-    // that can create the production layer surface.
     readonly property bool expectLayerShellSurface:
         Quickshell.env("EPHEMERA_TEST_EXPECT_LAYER_SHELL") === "1"
 

@@ -33,7 +33,6 @@ SettingsCard {
         return true;
     }
 
-    // Header row
     Row {
         width: parent.width
         spacing: Theme.spacingM
@@ -58,7 +57,6 @@ SettingsCard {
         width: parent.width
         spacing: Theme.spacingS
 
-        // Enable toggle
         Row {
             width: parent.width
             spacing: Theme.spacingM
@@ -100,7 +98,6 @@ SettingsCard {
             }
         }
 
-        // MCP server configuration
         AccordionSection {
             show: aiService.mcpEnabled
 
@@ -212,7 +209,6 @@ SettingsCard {
                 }
             }
 
-            // Connect / Disconnect button
             Row {
                 width: parent.width
                 spacing: Theme.spacingS
@@ -252,11 +248,9 @@ SettingsCard {
             }
         }
 
-        // Connection status
         AccordionSection {
             show: aiService.mcpEnabled
 
-            // Error
             Rectangle {
                 width: parent.width
                 height: mcpErrorText.implicitHeight + Theme.spacingS * 2
@@ -278,7 +272,6 @@ SettingsCard {
                 }
             }
 
-            // Status pill
             Rectangle {
                 width: parent.width
                 height: 36
@@ -348,7 +341,6 @@ SettingsCard {
                 wrapMode: Text.WordWrap
             }
 
-            // Tool list
             AccordionSection {
                 show: aiService.mcpConnected && aiService.mcpTools.length > 0
 

@@ -9,12 +9,10 @@ import "../lib/Providers.js" as Providers
 Item {
     id: root
 
-    // --- Configuration ---
     property string mcpUrl: ""
     property bool allowInsecureHttp: false
     property bool enabled: false
 
-    // --- State ---
     property bool isConnected: false
     property bool connecting: false
     property string connectionError: ""
@@ -76,7 +74,6 @@ Item {
         "2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05", "2024-10-07"
     ]
 
-    // --- Signals ---
     signal toolCallCompleted(var callId, string result)
     signal toolCallFailed(var callId, string error)
     signal mcpToolsUpdated()
@@ -84,8 +81,6 @@ Item {
 
     onMcpUrlChanged: root._handleConfigurationChanged()
     onAllowInsecureHttpChanged: root._handleConfigurationChanged()
-
-    // --- Lifecycle ---
 
     Component.onDestruction: {
         _reconnectPending = false;
@@ -95,8 +90,6 @@ Item {
             mcpProcess.running = false;
         }
     }
-
-    // --- Public API ---
 
     function connectToServer() {
         if (!enabled) {
@@ -159,7 +152,6 @@ Item {
         Qt.callLater(connectToServer);
     }
 
-    // Call an exactly approved tool contract with validated object arguments.
     function callTool(toolName, args, approvedKeys) {
         var tool = _findTool(toolName);
         if (!isConnected || _listingTools || !tool
@@ -237,7 +229,6 @@ Item {
         return tool ? String(tool.description || tool.title || "") : "";
     }
 
-    // Get approved tools formatted for the Ollama /api/chat tools array.
     function getOllamaTools(approvedKeys) {
         var result = [];
         for (var i = 0; i < tools.length; i++) {
@@ -255,8 +246,6 @@ Item {
         }
         return result;
     }
-
-    // --- Internal: lifecycle and dependency gate ---
 
     function _configurationError(url, insecureAllowed) {
         var targetUrl = String(url || "").trim();
@@ -544,8 +533,6 @@ Item {
         }
     }
 
-    // --- Internal: JSON-RPC ---
-
     function _writeMessage(message) {
         if (!mcpProcess.running)
             return false;
@@ -694,8 +681,6 @@ Item {
         _beginListTools();
     }
 
-    // --- Internal: bounded tool discovery ---
-
     function _beginListTools() {
         if (_listingTools || !_initialized)
             return;
@@ -806,8 +791,6 @@ Item {
         _bridgeDiagnostics = (_bridgeDiagnostics + "\n" + value).slice(-_maxDiagnosticChars);
     }
 
-    // --- Timers ---
-
     Timer {
         id: bridgeVersionTimer
         interval: root._versionProbeTimeoutMs
@@ -828,8 +811,6 @@ Item {
         repeat: false
         onTriggered: root._abortConnection("MCP connection timed out.")
     }
-
-    // --- Processes ---
 
     Process {
         id: nodeVersionProbe

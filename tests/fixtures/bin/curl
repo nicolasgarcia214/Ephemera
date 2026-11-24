@@ -180,7 +180,6 @@ case "$endpoint" in
     *)
         if [ "$chat_request" -eq 1 ] \
                 && [ "${EPHEMERA_SUBMISSION_FIXTURE:-0}" -eq 1 ]; then
-            # Consume curl's config from stdin so the QML process can close it.
             sed -n '1,$p' >/dev/null
             printf '%s\n' \
                 '{"message":{"content":"accepted response"},"done":false}' \

@@ -1,8 +1,5 @@
 "use strict";
 
-// This preload is part of the MCP transport security boundary. It is loaded by
-// the already version-checked Node executable before mcp-remote's entry point.
-
 var fs = require("node:fs");
 var childProcess = require("node:child_process");
 var createRequire = require("node:module").createRequire;
@@ -131,9 +128,6 @@ try {
             || typeof undici.install !== "function")
         fail("the checked Undici module does not expose the required API");
 
-    // The reviewed open 10.1.0/10.2.0 Linux implementations delegate the initial
-    // OAuth URL to child_process.spawn with the URL as its final argument.
-    // Gate those exact releases and layouts before relying on this hook.
     var openEntry = fs.realpathSync(bridgeRequire.resolve("open"));
     var resolvedOpenRoot = path.dirname(openEntry);
     var hoistedOpenRoot = standardGlobalLayout
@@ -154,8 +148,6 @@ try {
     if (process.platform !== "linux" || /microsoft/i.test(os.release()))
         fail("the guarded OAuth browser handoff requires native Linux");
 
-    // Install the reviewed implementation for transports which use Node's
-    // global Fetch, then guard both that path and mcp-remote's direct import.
     undici.install();
     var directFetch = undici.fetch.bind(undici);
     var guardedFetch = function(input, init) {
@@ -163,10 +155,6 @@ try {
             ? input.url : String(input || "");
         var transportApproved = approvedTransportUrl(inputValue);
         if (!transportApproved && isOAuthCoordinationUrl(inputValue)) {
-            // mcp-remote 0.1.38 catches an ordinary rejection here, deletes a
-            // live peer's OAuth lock, and starts a competing flow. Terminate
-            // instead: concurrent OAuth is unsupported, but the lock and the
-            // peer performing authorization remain intact.
             fail("concurrent MCP OAuth coordination is unsupported");
         }
         if (!transportApproved) {
@@ -193,9 +181,6 @@ try {
     if (undici.fetch !== guardedFetch || globalThis.fetch !== guardedFetch)
         fail("the redirect guard could not be installed");
 
-    // mcp-remote opens OAuth authorization URLs through the ESM `open`
-    // package, outside Fetch. On Linux that package delegates to xdg-open;
-    // apply the same transport policy before a browser process is spawned.
     var directSpawn = childProcess.spawn.bind(childProcess);
     var guardedSpawn = function(command, args, options) {
         var executable = path.basename(String(command || ""));

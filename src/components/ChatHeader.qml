@@ -33,7 +33,6 @@ RowLayout {
         Layout.alignment: Qt.AlignVCenter
     }
 
-    // Provider pill with fixed max width and truncation
     Rectangle {
         id: providerPill
         radius: Theme.cornerRadius
@@ -168,7 +167,6 @@ RowLayout {
                     width: modelSelectorPopup.availableWidth
                     spacing: Theme.spacingXS
 
-                // Model text field for quick entry
                 DankTextField {
                     id: quickModelField
                     width: parent.width
@@ -192,7 +190,6 @@ RowLayout {
                     }
                 }
 
-                // Model list (hardcoded for external providers, runtime for Ollama)
                 Column {
                     width: parent.width
                     spacing: 0

@@ -45,7 +45,6 @@ SettingsCard {
             onValueChanged: value => aiService.setProvider(value)
         }
 
-        // Ollama URL
         AccordionSection {
             show: aiService.provider === "ollama"
 
@@ -79,7 +78,6 @@ SettingsCard {
             }
         }
 
-        // Ollama thinking mode
         AccordionSection {
             show: aiService.provider === "ollama"
 
@@ -128,7 +126,6 @@ SettingsCard {
             }
         }
 
-        // Native Ollama context window (used by MCP/tool chat)
         AccordionSection {
             show: aiService.provider === "ollama"
 
@@ -156,7 +153,6 @@ SettingsCard {
             }
         }
 
-        // Custom base URL
         AccordionSection {
             show: aiService.provider === "custom"
 
@@ -191,7 +187,6 @@ SettingsCard {
             }
         }
 
-        // Extended thinking toggle (Anthropic and Gemini)
         AccordionSection {
             show: aiService.provider === "anthropic" || aiService.provider === "gemini"
 
@@ -241,14 +236,12 @@ SettingsCard {
             }
         }
 
-        // Model selector
         StyledText {
             text: "Model"
             font.pixelSize: Theme.fontSizeSmall
             color: Theme.surfaceVariantText
         }
 
-        // Dropdown (shown when provider has model choices)
         AccordionSection {
             show: aiService.modelChoices.length > 0
 
@@ -263,7 +256,6 @@ SettingsCard {
             }
         }
 
-        // Text field for manual model entry (always visible)
         DankTextField {
             width: parent.width
             text: aiService.model
@@ -277,7 +269,6 @@ SettingsCard {
             }
         }
 
-        // Ollama action buttons
         AccordionSection {
             show: aiService.provider === "ollama"
 
@@ -311,7 +302,6 @@ SettingsCard {
                 }
             }
 
-            // Idle auto-stop timeout
             Row {
                 width: parent.width
                 spacing: Theme.spacingM
@@ -368,7 +358,6 @@ SettingsCard {
         }
     }
 
-    // Validate pending text fields on settings close
     function validatePendingFields() {
         if (aiService.provider === "custom" && customUrlField.text.trim())
             customUrlField.editingFinished();

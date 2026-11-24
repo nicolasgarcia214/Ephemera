@@ -90,8 +90,6 @@ ShellRoot {
     function startSplitUtf8() {
         phase = "split-utf8";
         currentProvider = "openai";
-        // Split U+20AC across two pipe writes and leave the status line
-        // unterminated so line splitting must flush the tail at exit.
         launch("split-utf8", "printf 'data: {\"choices\":[{\"delta\":{\"content\":\"a\\342\\202';"
             + " sleep 0.2; printf '\\254b\"},\"finish_reason\":\"stop\"}]}\\n\\n';"
             + " printf 'EPH_STATUS:200'");
@@ -139,7 +137,6 @@ ShellRoot {
         provider: root.currentProvider
 
         onStreamContentUpdated: {
-            // Ensure tok/s is rendered without making the transport fixture slow.
             streaming.streamStartTime = Date.now() - 1000;
         }
 

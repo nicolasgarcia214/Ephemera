@@ -5,7 +5,7 @@ import qs.Common
 Item {
     id: root
     clip: true
-    property var messages: null // expects a ListModel
+    property var messages: null
     property bool stickToBottom: true
     property string modelName: "Assistant"
     property bool expanded: false
@@ -19,11 +19,6 @@ Item {
     signal editRequested(string msgId, string newText)
     signal copyRequested(string msgId)
 
-    // --- Bottom follow ---
-    // Only an upward move away from the end leaves the bottom. Following
-    // growth moves contentY downward, and the ListView's sub-pixel alignment of
-    // its end position stays within _atEnd()'s tolerance, so neither can be
-    // mistaken for the user scrolling away.
     property real _lastContentY: 0
 
     function scrollToBottom() {
@@ -61,8 +56,6 @@ Item {
             root._lastContentY = listView.contentY;
         }
 
-        // New messages, streamed deltas, and a shrinking viewport all move the
-        // end; coalesce them into one reposition per event-loop pass.
         onContentHeightChanged: if (root.stickToBottom) Qt.callLater(root._followEnd)
         onHeightChanged: if (root.stickToBottom) Qt.callLater(root._followEnd)
 
@@ -78,7 +71,6 @@ Item {
 
             implicitHeight: bubble.implicitHeight + topGap
 
-            // Materialization properties
             property real _entryOffset: 8
             opacity: 0
             scale: 0.97

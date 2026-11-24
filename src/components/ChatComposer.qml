@@ -126,7 +126,6 @@ Row {
         }
     }
 
-    // Compact send/stop crossfade area
     Item {
         id: actionButtonArea
         width: 44

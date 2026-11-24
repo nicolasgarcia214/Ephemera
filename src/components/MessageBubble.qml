@@ -11,7 +11,7 @@ Item {
     property string text: ""
     property string thinking: ""
     property bool thinkingExpanded: false
-    property string status: "ok" // ok|streaming|error
+    property string status: "ok"
     property string errorText: ""
     property string modelName: "Assistant"
     property bool expanded: false
@@ -59,8 +59,6 @@ Item {
     property string renderedHtml: ""
     property string _lastRenderKey: ""
 
-    // --- Error presentation ---
-    // Chats saved before errorText existed stored the error as the content.
     readonly property string _errorMessage:
         status !== "error" ? "" : (errorText.length > 0 ? errorText : text)
     readonly property bool _showsContent:
@@ -95,18 +93,15 @@ Item {
         if (status === "streaming" && thinking.length > 0 && text.length > 0 && thinkingExpanded) {
             thinkingExpanded = false;
         }
-        // Re-render if text changes while already in a terminal state
         if (status === "ok" || status === "error")
             _updateRenderedHtml();
     }
 
     onThemeColorsChanged: {
-        // Keep deferred rendering during streaming, even when the theme changes.
         if (status === "ok" || status === "error")
             _updateRenderedHtml();
     }
 
-    // Debounced thinking scroll
     Timer {
         id: thinkingScrollTimer
         interval: 100
@@ -126,7 +121,6 @@ Item {
     width: parent ? parent.width : implicitWidth
     implicitHeight: bubble.implicitHeight
 
-    // Error shake transform
     transform: Translate {
         id: shakeTranslate
 
@@ -174,7 +168,6 @@ Item {
             id: hoverHandler
         }
 
-        // Click anywhere on bubble to toggle thinking during streaming
         MouseArea {
             id: streamingBubbleThinkingButton
             anchors.fill: parent
@@ -383,7 +376,6 @@ Item {
                 }
             }
 
-            // Header-content separator
             Item {
                 width: parent.width
                 implicitHeight: 1 + Theme.spacingXS
@@ -394,7 +386,6 @@ Item {
                 }
             }
 
-            // Thinking section (only visible when thinking exists)
             Column {
                 width: parent.width
                 visible: root.thinking.length > 0
@@ -483,7 +474,6 @@ Item {
                 }
             }
 
-            // Extra spacing between thinking and content
             Item {
                 width: parent.width
                 height: Theme.spacingM
@@ -510,15 +500,12 @@ Item {
                 rightPadding: 4
 
                 onLinkActivated: link => {
-                    // Only allow http/https — security fix
                     if (/^https?:\/\//i.test(link))
                         Qt.openUrlExternally(link);
                 }
 
                 hoverEnabled: true
 
-                // Qt breaks the text binding when textFormat switches between
-                // RichText and PlainText. Re-establish it after each switch.
                 Connections {
                     target: root
                     function onUseMarkdownRenderingChanged() {
@@ -529,7 +516,6 @@ Item {
                 }
             }
 
-            // Warning banner for errors
             Rectangle {
                 visible: root.status === "error"
                 width: parent.width
@@ -578,7 +564,6 @@ Item {
                 }
             }
 
-            // Inline edit area for user messages
             Column {
                 visible: root._editing
                 width: parent.width
@@ -651,14 +636,12 @@ Item {
                 }
             }
 
-            // Pulsing streaming dots (clickable to toggle thinking)
             Item {
                 visible: status === "streaming"
                 width: streamingRow.width
                 height: visible ? streamingRow.height : 0
                 x: root.isUser ? (parent.width - width) : 0
 
-                // Thinking phase: thinking exists but no content yet
                 readonly property bool isThinkingPhase: root.thinking.length > 0 && root.text.length === 0
                 readonly property color dotColor: isThinkingPhase ? Theme.tertiary : Theme.primary
 
@@ -709,7 +692,6 @@ Item {
                         }
                     }
 
-                    // Waiting for first token hint
                     StyledText {
                         visible: root.status === "streaming" && root.streamStartTime === 0 && root.text.length === 0 && root.thinking.length === 0
                         text: root.isLocalProvider ? "Loading model\u2026" : "Sending request\u2026"
@@ -719,7 +701,6 @@ Item {
                         anchors.verticalCenter: parent.verticalCenter
                     }
 
-                    // Elapsed time + tokens/sec counter
                     StyledText {
                         visible: root.streamStartTime > 0
                         text: _elapsedText
@@ -771,7 +752,6 @@ Item {
                 }
             }
 
-            // Persisted stream stats (toggle on click)
             Item {
                 visible: root.status !== "streaming" && root.streamStats.length > 0 && !root.isUser
                 width: statsRow.implicitWidth
@@ -827,7 +807,6 @@ Item {
                 }
             }
 
-            // Request payload section (collapsible)
             Column {
                 width: parent.width
                 visible: root._requestInfoExpanded && root.requestPayload.length > 0

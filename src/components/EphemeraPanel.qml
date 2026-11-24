@@ -66,9 +66,6 @@ PanelWindow {
     }
 
     function _syncWindowEdge() {
-        // Layer-shell applies each anchor property independently. Always release
-        // the old edge before selecting the new one so a side switch can never
-        // transiently stretch the surface between both horizontal edges.
         if (panelOnLeft) {
             root.anchors.right = false;
             root.anchors.left = true;

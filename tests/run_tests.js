@@ -1,11 +1,7 @@
 #!/usr/bin/env node
-// Comprehensive test suite for Ephemera's pure JS modules.
-// Run: node tests/run_tests.js
 
 var fs = require("fs");
 var path = require("path");
-
-// ─── Test framework ─────────────────────────────────────────────
 
 var passed = 0;
 var failed = 0;
@@ -52,18 +48,12 @@ function assertDeepEqual(actual, expected, message) {
     }
 }
 
-// ─── Load modules ───────────────────────────────────────────────
-// .pragma library modules use a QML-specific engine. We load the source,
-// strip the directive, and evaluate the exported functions.
-
 function loadPragmaLib(filename) {
     var src = fs.readFileSync(path.join(__dirname, "..", filename), "utf8");
     src = src.replace(/^\.pragma library\s*/, "");
-    // Also strip console.warn calls since they reference QML context
     src = src.replace(/console\.warn\([^)]*\);?/g, "");
     var mod = {};
     var funcNames = (src.match(/^function\s+(\w+)/gm) || []).map(function(m) { return m.replace("function ", ""); });
-    // Also export var declarations (like registry)
     var varNames = (src.match(/^var\s+(\w+)/gm) || []).map(function(m) { return m.replace("var ", ""); });
     var exports = funcNames.concat(varNames);
     var fn = new Function("module", "exports", src + "\nmodule.exports = { " + exports.join(", ") + " };");
@@ -82,10 +72,6 @@ var VariantStore = loadPragmaLib("src/lib/VariantStore.js");
 var ChatPersistence = loadPragmaLib("src/lib/ChatPersistence.js");
 var ErrorHints = loadPragmaLib("src/lib/ErrorHints.js");
 var Submission = loadPragmaLib("src/lib/Submission.js");
-
-// ═════════════════════════════════════════════════════════════════
-// Submission readiness and UI wiring tests
-// ═════════════════════════════════════════════════════════════════
 
 section("Submission readiness contract");
 (function() {
@@ -127,10 +113,6 @@ section("Composer submission wiring");
             && serviceSource.indexOf("_applyError(activeStreamId") < 0,
         "rejected coordinator submissions are side-effect free");
 })();
-
-// ═════════════════════════════════════════════════════════════════
-//  StreamParser tests
-// ═════════════════════════════════════════════════════════════════
 
 section("StreamParser.splitLines");
 (function() {
@@ -395,7 +377,6 @@ section("StreamParser.parseDelta — provider errors and refusals");
 
 section("StreamParser.parseDelta — outputTokens");
 (function() {
-    // OpenAI Chat Completions: finish_reason precedes a usage-only chunk.
     var finish = StreamParser.parseDelta(JSON.stringify({
         choices: [{ delta: {}, finish_reason: "stop" }]
     }), "openai");
@@ -416,7 +397,6 @@ section("StreamParser.parseDelta — outputTokens");
     assertEqual(usage.usageReceived, true, "zero-token usage still completes accounting");
     assertEqual(usage.outputTokens, 0, "preserves zero completion tokens");
 
-    // OpenAI-compatible providers may also include usage with finish_reason.
     var json = JSON.stringify({
         choices: [{ delta: {}, finish_reason: "stop" }],
         usage: { prompt_tokens: 50, completion_tokens: 120, total_tokens: 170 }
@@ -426,14 +406,12 @@ section("StreamParser.parseDelta — outputTokens");
     assertEqual(r.done, true, "done alongside usage");
     assertEqual(r.usageReceived, true, "recognizes usage alongside finish_reason");
 
-    // OpenAI: no usage in normal delta
     json = JSON.stringify({
         choices: [{ delta: { content: "hi" } }]
     });
     r = StreamParser.parseDelta(json, "openai");
     assertEqual(r.outputTokens, 0, "no outputTokens in normal OpenAI delta");
 
-    // Ollama OpenAI-compatible: usage in final chunk
     json = JSON.stringify({
         choices: [{ delta: {}, finish_reason: "stop" }],
         usage: { completion_tokens: 85 }
@@ -443,7 +421,6 @@ section("StreamParser.parseDelta — outputTokens");
     assertEqual(r.openAiCompatible, true, "marks Ollama compatibility response shape");
     assertEqual(r.usageReceived, true, "recognizes Ollama compatibility usage");
 
-    // Ollama native: eval_count in final chunk
     json = JSON.stringify({
         model: "gemma4",
         message: { role: "assistant", content: "" },
@@ -454,7 +431,6 @@ section("StreamParser.parseDelta — outputTokens");
     assertEqual(r.outputTokens, 85, "extracts Ollama eval_count");
     assertEqual(r.openAiCompatible, false, "native Ollama response is not compatibility-shaped");
 
-    // Anthropic: usage.output_tokens on message_delta
     json = JSON.stringify({
         type: "message_delta",
         delta: { stop_reason: "end_turn" },
@@ -464,7 +440,6 @@ section("StreamParser.parseDelta — outputTokens");
     assertEqual(r.outputTokens, 200, "extracts Anthropic output_tokens");
     assertEqual(r.done, true, "done alongside Anthropic usage");
 
-    // Anthropic: no usage on content_block_delta
     json = JSON.stringify({
         type: "content_block_delta",
         delta: { type: "text_delta", text: "hi" }
@@ -472,7 +447,6 @@ section("StreamParser.parseDelta — outputTokens");
     r = StreamParser.parseDelta(json, "anthropic");
     assertEqual(r.outputTokens, 0, "no outputTokens in Anthropic content delta");
 
-    // Gemini: usageMetadata.candidatesTokenCount
     json = JSON.stringify({
         candidates: [{ content: { parts: [{ text: "done" }] } }],
         usageMetadata: { promptTokenCount: 30, candidatesTokenCount: 450, totalTokenCount: 480 }
@@ -481,14 +455,12 @@ section("StreamParser.parseDelta — outputTokens");
     assertEqual(r.outputTokens, 450, "extracts Gemini candidatesTokenCount");
     assertEqual(r.content, "done", "content alongside Gemini usage");
 
-    // Gemini: no usageMetadata
     json = JSON.stringify({
         candidates: [{ content: { parts: [{ text: "mid" }] } }]
     });
     r = StreamParser.parseDelta(json, "gemini");
     assertEqual(r.outputTokens, 0, "no outputTokens when Gemini has no usageMetadata");
 
-    // Default: outputTokens is 0 on parse error
     r = StreamParser.parseDelta("not json", "openai");
     assertEqual(r.outputTokens, 0, "outputTokens is 0 on parse error");
 })();
@@ -513,41 +485,33 @@ section("StreamParser.routeThinkTags");
     assertEqual(r.thinkingParts.join(""), "more", "continues thinking from state");
     assertEqual(r.contentParts.join(""), "done", "content after close tag");
 
-    // Partial tag at boundary
     r = StreamParser.routeThinkTags("hello<thi", "", false);
     assertEqual(r.tagBuffer, "<thi", "partial tag buffered");
     assertEqual(r.contentParts.join(""), "hello", "content before partial tag");
 
-    // Resume with rest of tag
     r = StreamParser.routeThinkTags("nk>inside", r.tagBuffer, r.insideThinkTag);
     assertEqual(r.insideThinkTag, true, "entered think tag from resumed buffer");
     assertEqual(r.thinkingParts.join(""), "inside", "thinking after resumed tag");
 
-    // Newline after opening tag stripped
     r = StreamParser.routeThinkTags("<think>\nthinking", "", false);
     assertEqual(r.thinkingParts.join(""), "thinking", "leading newline after <think> stripped");
 
-    // Newline after closing tag stripped
     r = StreamParser.routeThinkTags("thought</think>\ncontent", "", true);
     assertEqual(r.thinkingParts.join(""), "thought", "thinking before close");
     assertEqual(r.contentParts.join(""), "content", "leading newline after </think> stripped");
 
-    // Empty think tags
     r = StreamParser.routeThinkTags("<think></think>content", "", false);
     assertEqual(r.contentParts.join(""), "content", "empty think tags produce no thinking");
     assertDeepEqual(r.thinkingParts, [], "no thinking parts from empty tags");
 
-    // Multiple think blocks
     r = StreamParser.routeThinkTags("<think>a</think>b<think>c</think>d", "", false);
     assertEqual(r.thinkingParts.join(""), "ac", "multiple think blocks concatenated");
     assertEqual(r.contentParts.join(""), "bd", "content between think blocks");
 
-    // Partial closing tag at boundary
     r = StreamParser.routeThinkTags("thinking</thi", "", true);
     assertEqual(r.tagBuffer, "</thi", "partial close tag buffered");
     assertEqual(r.thinkingParts.join(""), "thinking", "thinking before partial close tag");
 
-    // Empty input
     r = StreamParser.routeThinkTags("", "", false);
     assertDeepEqual(r.contentParts, [], "empty input produces no content");
     assertDeepEqual(r.thinkingParts, [], "empty input produces no thinking");
@@ -584,7 +548,6 @@ section("StreamParser.extractHttpStatus");
 
 section("StreamParser.parseDelta — Ollama native /api/chat");
 (function() {
-    // Normal content chunk
     var json = JSON.stringify({
         model: "gemma4",
         message: { role: "assistant", content: "Hello" },
@@ -612,7 +575,6 @@ section("StreamParser.parseDelta — Ollama native /api/chat");
     assertEqual(r.content, "", "missing native content defaults to empty string");
     assertEqual(r.thinking, "thinking without content", "extracts thinking when content is omitted");
 
-    // Tool call chunk (MCP tool)
     json = JSON.stringify({
         model: "gemma4",
         message: {
@@ -628,7 +590,6 @@ section("StreamParser.parseDelta — Ollama native /api/chat");
     assert(Array.isArray(r.toolCalls), "returns tool calls as an array");
     assertEqual(r.toolCalls[0].function.name, "web_search", "keeps tool call name");
 
-    // Tool call with done: true (intermediate turn end)
     json = JSON.stringify({
         model: "gemma4",
         message: {
@@ -644,7 +605,6 @@ section("StreamParser.parseDelta — Ollama native /api/chat");
     assertEqual(r.done, true, "done is true on tool call turn end");
     assertEqual(r.outputTokens, 15, "extracts eval_count on tool call chunk");
 
-    // Final done chunk (actual response complete)
     json = JSON.stringify({
         model: "gemma4",
         message: { role: "assistant", content: "" },
@@ -657,7 +617,6 @@ section("StreamParser.parseDelta — Ollama native /api/chat");
     assertEqual(r.toolCalls, false, "no tool calls on final chunk");
     assertEqual(r.outputTokens, 200, "extracts eval_count on final chunk");
 
-    // No tool_calls field at all
     json = JSON.stringify({
         model: "gemma4",
         message: { role: "assistant", content: "normal" },
@@ -666,7 +625,6 @@ section("StreamParser.parseDelta — Ollama native /api/chat");
     r = StreamParser.parseDelta(json, "ollama");
     assertEqual(r.toolCalls, false, "no tool calls when field absent");
 
-    // Empty tool_calls array
     json = JSON.stringify({
         model: "gemma4",
         message: { role: "assistant", content: "hi", tool_calls: [] },
@@ -734,10 +692,6 @@ section("StreamParser.extractNonStreamingText — Gemini");
     r = StreamParser.extractNonStreamingText(body, "gemini");
     assertEqual(r, "answer", "excludes Gemini thought parts from non-streaming text");
 })();
-
-// ═════════════════════════════════════════════════════════════════
-//  Providers tests
-// ═════════════════════════════════════════════════════════════════
 
 section("Providers.normalizeBaseUrl");
 (function() {
@@ -817,30 +771,25 @@ section("Providers.extractSystemPrompt");
 
 section("Providers.clampTemperature");
 (function() {
-    // Basic clamping
     assertEqual(Providers.clampTemperature("openai", "gpt-4", 0.5), 0.5, "passes valid temp through for OpenAI");
     assertEqual(Providers.clampTemperature("openai", "gpt-4", 3.0), 2.0, "clamps above max for OpenAI");
     assertEqual(Providers.clampTemperature("openai", "gpt-4", -1.0), 0.0, "clamps below min for OpenAI");
     assertEqual(Providers.clampTemperature("anthropic", "claude-3", 1.5), 1.0, "clamps to Anthropic max of 1.0");
     assertEqual(Providers.clampTemperature("anthropic", "claude-3", 0.5), 0.5, "valid Anthropic temp");
 
-    // Default temperature when not provided
     assertEqual(Providers.clampTemperature("openai", "gpt-4", undefined), 1.0, "uses OpenAI default when undefined");
     assertEqual(Providers.clampTemperature("openai", "gpt-4", null), 1.0, "uses OpenAI default when null");
     assertEqual(Providers.clampTemperature("ollama", "llama3", undefined), 0.8, "uses Ollama default");
 
-    // Unsupported models — exact match
     assertEqual(Providers.clampTemperature("openai", "o1", 0.5), undefined, "o1 exact match returns undefined");
     assertEqual(Providers.clampTemperature("openai", "o3", 0.5), undefined, "o3 exact match returns undefined");
     assertEqual(Providers.clampTemperature("openai", "o4-mini", 0.5), undefined, "o4-mini exact family returns undefined");
 
-    // Unsupported models — prefix with separator
     assertEqual(Providers.clampTemperature("openai", "o1-mini", 0.5), undefined, "o1-mini returns undefined");
     assertEqual(Providers.clampTemperature("openai", "o1-preview", 0.5), undefined, "o1-preview returns undefined");
     assertEqual(Providers.clampTemperature("openai", "o3-mini", 0.5), undefined, "o3-mini returns undefined");
     assertEqual(Providers.clampTemperature("openai", "o1_custom", 0.5), undefined, "o1_custom returns undefined");
 
-    // Models that resemble an o-series name without its numeric identifier boundary
     var result = Providers.clampTemperature("openai", "o1.5", 0.5);
     assert(result !== undefined, "o1.5 is NOT an unsupported model (not a reasoning model)");
 
@@ -850,14 +799,11 @@ section("Providers.clampTemperature");
     result = Providers.clampTemperature("openai", "o3x", 0.5);
     assert(result !== undefined, "o3x is NOT an unsupported model");
 
-    // Case insensitivity
     assertEqual(Providers.clampTemperature("openai", "O1-MINI", 0.5), undefined, "case insensitive match");
     assertEqual(Providers.clampTemperature("openai", "O1.5", 0.5) !== undefined, true, "case insensitive non-match");
 
-    // Unknown provider falls back to custom
     assertEqual(Providers.clampTemperature("unknown", "model", 0.5), 0.5, "unknown provider uses custom range");
 
-    // Edge: zero temperature
     assertEqual(Providers.clampTemperature("openai", "gpt-4", 0.0), 0.0, "zero temperature is valid");
 })();
 
@@ -922,12 +868,10 @@ section("Providers.escapeCurlConfig");
     assertEqual(Providers.escapeCurlConfig(null), "", "handles null");
 })();
 
-// Helper: extract JSON body from a curl config string
 function parseCurlConfigBody(config) {
     var match = config.match(/^data = "((?:[^"\\]|\\.)*)"/m);
     if (!match) return null;
     var val = match[1];
-    // Unescape curl config escaping (placeholder for \\\\ to avoid double-processing)
     val = val.replace(/\\\\/g, '\x01')
              .replace(/\\"/g, '"')
              .replace(/\\n/g, '\n')
@@ -939,7 +883,6 @@ function parseCurlConfigBody(config) {
 
 section("Providers.buildCurlCommand");
 (function() {
-    // Ollama (no key needed)
     var payload = {
         provider: "ollama", baseUrl: "http://localhost:11434",
         model: "llama3", messages: [{ role: "user", content: "hi" }],
@@ -962,7 +905,6 @@ section("Providers.buildCurlCommand");
         "curl redirects are explicitly disabled");
     assert(r.cmd.indexOf("--location") < 0 && r.cmd.indexOf("-L") < 0,
         "curl command never enables redirect following");
-    // Body is now in curl config, not direct JSON
     assert(r.body.indexOf('url = "') >= 0, "config contains url directive");
     assert(r.body.indexOf('data = "') >= 0, "config contains data directive");
     var body = parseCurlConfigBody(r.body);
@@ -972,7 +914,6 @@ section("Providers.buildCurlCommand");
     assertEqual(body.reasoning_effort, undefined, "default Ollama thinking omits reasoning_effort");
     assert(r.body.indexOf('url = "http://localhost:11434/v1/chat/completions"') >= 0, "Ollama chat defaults to OpenAI-compatible endpoint");
 
-    // No secrets in /proc/cmdline — verify cmd has no auth headers or URLs
     var cmdStr = r.cmd.join(" ");
     assert(cmdStr.indexOf("localhost:11434") < 0, "URL not in cmd args (hidden in config)");
 
@@ -1040,7 +981,6 @@ section("Providers.buildCurlCommand");
     assertEqual(body.reasoning_effort, undefined, "invalid Ollama thinking mode falls back to default");
     payload.ollamaThinkingMode = "default";
 
-    // OpenAI (key required)
     payload.provider = "openai";
     payload.baseUrl = "https://api.openai.com";
     r = Providers.buildCurlCommand("openai", payload, "sk-test123");
@@ -1048,7 +988,6 @@ section("Providers.buildCurlCommand");
     assert(r.body.indexOf("Bearer sk-test123") >= 0, "auth header in config body");
     assert(r.cmd.join(" ").indexOf("Bearer") < 0, "auth header NOT in cmd args");
 
-    // OpenAI without key returns null
     r = Providers.buildCurlCommand("openai", payload, "");
     assertEqual(r, null, "OpenAI returns null without key");
 
@@ -1082,7 +1021,6 @@ section("Providers.buildCurlCommand");
     assertEqual(Providers.clampTemperature("openai", "gpt-5.4", 0.7), 0.7,
         "GPT-5.4 retains temperature at its default reasoning effort");
 
-    // Anthropic
     payload.provider = "anthropic";
     payload.baseUrl = "https://api.anthropic.com";
     payload.model = "claude-sonnet-4-6";
@@ -1095,7 +1033,6 @@ section("Providers.buildCurlCommand");
     body = parseCurlConfigBody(r.body);
     assert(body.max_tokens > 0, "Anthropic body has max_tokens");
 
-    // Anthropic with thinking enabled
     payload.thinkingEnabled = true;
     r = Providers.buildCurlCommand("anthropic", payload, "sk-ant-test");
     assert(r.body.indexOf("interleaved-thinking") < 0, "adaptive thinking omits deprecated beta header");
@@ -1179,7 +1116,6 @@ section("Providers.buildCurlCommand");
     assertEqual(body.thinking.budget_tokens, 1024, "small manual request uses minimum thinking budget");
     payload.max_tokens = 4096;
 
-    // Gemini
     payload.provider = "gemini";
     payload.baseUrl = "https://generativelanguage.googleapis.com";
     payload.thinkingEnabled = false;
@@ -1206,7 +1142,6 @@ section("Providers.buildCurlCommand");
         "Gemini falls back to gemini-3.8-flash when no model is set");
     payload.model = savedGeminiModel;
 
-    // Custom provider uses the OpenAI-compatible request shape over HTTPS
     payload.provider = "custom";
     payload.baseUrl = "https://custom.example/v2";
     payload.model = "custom-model";
@@ -1217,11 +1152,9 @@ section("Providers.buildCurlCommand");
     assertEqual(body.max_tokens, 4096, "custom provider retains generic max_tokens contract");
     assertEqual(body.max_completion_tokens, undefined, "custom provider does not inherit OpenAI o-series token field");
 
-    // Key sanitization — dirty key still builds, no control chars leak
     r = Providers.buildCurlCommand("openai", payload, "sk-test\r\n\x00injected");
     assert(r !== null, "builds even with dirty key");
     assert(r.body.indexOf("\r") < 0, "no CR in config body");
-    // Note: \\n in config is the escaped literal, not an actual newline
     assert(r.body.indexOf("sk-testinjected") >= 0, "sanitized key in config");
 })();
 
@@ -1336,7 +1269,6 @@ section("Providers.buildRequest — system prompt handling");
     assertEqual(body.system, "Be helpful", "Anthropic extracts system to top-level");
     assertEqual(body.messages.length, 1, "system removed from messages");
 
-    // Gemini system prompt
     payload.provider = "gemini";
     payload.baseUrl = "https://generativelanguage.googleapis.com";
     r = Providers.buildCurlCommand("gemini", payload, "gem-key");
@@ -1344,7 +1276,6 @@ section("Providers.buildRequest — system prompt handling");
     assert(body.system_instruction !== undefined, "Gemini has system_instruction");
     assertEqual(body.system_instruction.parts[0].text, "Be helpful", "Gemini system text");
 
-    // OpenAI keeps system in messages
     payload.provider = "openai";
     payload.baseUrl = "https://api.openai.com";
     r = Providers.buildCurlCommand("openai", payload, "sk-test");
@@ -1383,10 +1314,6 @@ section("Providers — unlimited tokens");
     body = parseCurlConfigBody(r.body);
     assertEqual(body.max_tokens, undefined, "OpenAI omits max_tokens when 0");
 })();
-
-// ═════════════════════════════════════════════════════════════════
-//  Markdown tests
-// ═════════════════════════════════════════════════════════════════
 
 section("Markdown.escapeHtml");
 (function() {
@@ -1479,7 +1406,6 @@ section("Markdown.markdownToHtml — links");
     assert(r.indexOf("https://example.com") >= 0, "link URL present");
     assert(r.indexOf("Click") >= 0, "link text present");
 
-    // Non-http scheme rejected
     r = Markdown.markdownToHtml("[Bad](javascript:alert(1))");
     assert(r.indexOf("href=") < 0, "javascript: scheme blocked");
     assert(r.indexOf("Bad") >= 0, "link text still rendered");
@@ -1487,11 +1413,9 @@ section("Markdown.markdownToHtml — links");
     r = Markdown.markdownToHtml("[Bad](file:///etc/passwd)");
     assert(r.indexOf("href=") < 0, "file: scheme blocked");
 
-    // Auto-linking
     r = Markdown.markdownToHtml("Visit https://example.com for info");
     assert(r.indexOf("href=") >= 0, "auto-linked URL");
 
-    // Each part of a link is escaped exactly once
     r = Markdown.markdownToHtml("[q&a](https://a.com/?a=1&b=2)");
     assert(r.indexOf('<a href="https://a.com/?a=1&amp;b=2">q&amp;a</a>') >= 0,
         "link text and href escape & exactly once");
@@ -1505,7 +1429,6 @@ section("Markdown.markdownToHtml — links");
     r = Markdown.markdownToHtml('See https://a.com/"x');
     assert(r.indexOf('href="https://a.com/&quot;x"') >= 0, "auto-link escapes \" inside href");
 
-    // Underscores inside URLs are not emphasis
     r = Markdown.markdownToHtml("See https://x.com/foo_bar_baz now");
     assert(r.indexOf('<a href="https://x.com/foo_bar_baz">https://x.com/foo_bar_baz</a>') >= 0,
         "auto-linked URL with underscores stays intact");
@@ -1528,11 +1451,9 @@ section("Markdown.markdownToHtml — XSS prevention");
     assert(r.indexOf('href="javascript:') < 0, "javascript: scheme not in any href");
     assert(r.indexOf("XSS") >= 0, "link text rendered as plain text");
 
-    // Code block language XSS
     r = Markdown.markdownToHtml('```<script>alert(1)</script>\ncode\n```');
     assert(r.indexOf("<script>alert") < 0, "script in language label escaped");
 
-    // XSS in link text — HTML is escaped by both body escaping and link escaping
     r = Markdown.markdownToHtml('[<img onerror=alert(1)>](https://safe.com)');
     assert(r.indexOf("<img ") < 0, "no raw HTML img tag in output");
 })();
@@ -1559,7 +1480,6 @@ section("Markdown.markdownToHtml — tables");
     assert(r.indexOf("<th") >= 0, "table headers");
     assert(r.indexOf("<td") >= 0, "table cells");
 
-    // Table content escaping
     table = "| <script> | B |\n| --- | --- |\n| 1 | 2 |";
     r = Markdown.markdownToHtml(table);
     assert(r.indexOf("<script>") < 0, "script in table header escaped");
@@ -1594,12 +1514,10 @@ section("Markdown.markdownToHtml — edge cases");
     var r = Markdown.markdownToHtml("plain text");
     assert(r.indexOf("plain text") >= 0, "plain text passes through");
 
-    // Very long line
     var long = "a".repeat(5000);
     r = Markdown.markdownToHtml(long);
     assert(r.indexOf("a") >= 0, "handles very long lines");
 
-    // Mixed content
     r = Markdown.markdownToHtml("# Title\n\nSome **bold** text.\n\n```\ncode\n```\n\n- list item");
     assert(r.indexOf("<h1") >= 0, "mixed: has header");
     assert(r.indexOf("<b>") >= 0, "mixed: has bold");
@@ -1683,10 +1601,6 @@ section("Markdown.renderCacheKey — text and theme colors");
     );
 })();
 
-// ═════════════════════════════════════════════════════════════════
-//  ChatExport tests
-// ═════════════════════════════════════════════════════════════════
-
 section("ChatExport.buildMarkdown");
 (function() {
     var md = ChatExport.buildMarkdown([
@@ -1705,7 +1619,6 @@ section("ChatExport.buildMarkdown");
     assert(md.indexOf("---") < 0, "single message has no separator");
     assert(md.indexOf("Only one") >= 0, "single message content");
 
-    // Multi-turn conversation
     md = ChatExport.buildMarkdown([
         { role: "user", content: "Q1" },
         { role: "assistant", content: "A1" },
@@ -1732,10 +1645,6 @@ section("ChatExport.generateFilename");
     f = ChatExport.generateFilename(null);
     assert(f.indexOf("ephemera-chat-") >= 0, "null home dir handled");
 })();
-
-// ═════════════════════════════════════════════════════════════════
-// Mcp.js tests
-// ═════════════════════════════════════════════════════════════════
 
 section("Mcp.trustKey");
 (function() {
@@ -2181,10 +2090,6 @@ section("McpSchema.validateToolResult");
     }).valid, true, "allows a well-formed error result without structured output");
 })();
 
-// ═════════════════════════════════════════════════════════════════
-// ChatPersistence.js tests
-// ═════════════════════════════════════════════════════════════════
-
 function persistedMessage(role, id, content) {
     return {
         role: role,
@@ -2282,7 +2187,6 @@ section("ChatPersistence error text");
 })();
 
 (function() {
-    // A failed first variant followed by a successful regeneration.
     var messages = persistedTurns(1, "second answer");
     var id = messages[1].id;
     messages[1].variantIndex = 1;
@@ -2299,7 +2203,6 @@ section("ChatPersistence error text");
     assert(!Object.prototype.hasOwnProperty.call(prepared.payload.variants[id][1], "errorText"),
         "successful variant carries no error text");
 
-    // Selecting the failed variant on load restores its error state.
     messages[1].variantIndex = 0;
     messages[1].content = "stale";
     prepared = ChatPersistence.prepareState({ version: 1, messages: messages, variants: variants }, 1);
@@ -2460,10 +2363,6 @@ section("ChatPersistence byte overflow and malicious input");
     }, 1), null, "rejects unknown persisted object structure");
 })();
 
-// ═════════════════════════════════════════════════════════════════
-// VariantStore.js tests
-// ═════════════════════════════════════════════════════════════════
-
 section("VariantStore.saveVariant");
 
 (function() {
@@ -2529,10 +2428,6 @@ section("VariantStore.adjustAfterEviction");
     assertEqual(adj.variantIndex, 0, "clamps to 0 when eviction exceeds index");
 })();
 
-// ═════════════════════════════════════════════════════════════════
-// ErrorHints.js tests
-// ═════════════════════════════════════════════════════════════════
-
 section("ErrorHints.httpErrorHint");
 
 (function() {
@@ -2569,10 +2464,6 @@ section("ErrorHints.curlExitHint");
     assert(h.indexOf("99") >= 0, "unknown exit code included in message");
 })();
 
-// ═════════════════════════════════════════════════════════════════
-// Providers.validateUrl tests
-// ═════════════════════════════════════════════════════════════════
-
 section("Providers.validateUrl");
 
 (function() {
@@ -2604,7 +2495,6 @@ section("Providers.validateUrl");
     r = Providers.validateUrl("https://!@#$");
     assert(!r.valid, "rejects invalid hostname");
 
-    // Path injection / unsafe character tests
     r = Providers.validateUrl("http://localhost:11434/<script>alert(1)</script>");
     assert(!r.valid, "rejects angle brackets in URL");
 
@@ -2659,7 +2549,6 @@ section("Providers.validateUrl");
     r = Providers.validateUrl("http://example.com/ok-path_name.ext/v2");
     assert(r.valid, "allows safe path characters (hyphens, underscores, dots)");
 
-    // Hostname must start with alphanumeric
     r = Providers.validateUrl("http://.:8080");
     assert(!r.valid, "rejects dot-only hostname");
 
@@ -2705,16 +2594,11 @@ section("Providers.validateOllamaUrl and local lifecycle scope");
         "request builder revalidates Ollama transport policy");
 })();
 
-// ═════════════════════════════════════════════════════════════════
-// Backoff.js tests
-// ═════════════════════════════════════════════════════════════════
-
 var Backoff = loadPragmaLib("src/lib/Backoff.js");
 
 section("Backoff.computeDelay");
 
 (function() {
-    // Run multiple times to verify range with jitter
     for (var i = 0; i < 20; i++) {
         var d = Backoff.computeDelay(0, 2000, 30000);
         assert(d >= 1000, "attempt 0: delay >= floor (1000ms), got " + d.toFixed(0));
@@ -2727,18 +2611,15 @@ section("Backoff.computeDelay");
         assert(d2 <= 8000, "attempt 2: delay <= 8000ms (2000*2^2), got " + d2.toFixed(0));
     }
 
-    // Cap at maxDelay
     for (var k = 0; k < 20; k++) {
         var d3 = Backoff.computeDelay(10, 2000, 30000);
         assert(d3 >= 1000, "attempt 10: delay >= floor, got " + d3.toFixed(0));
         assert(d3 <= 30000, "attempt 10: delay <= maxDelay (30000ms), got " + d3.toFixed(0));
     }
 
-    // Default parameters
     var d4 = Backoff.computeDelay(0);
     assert(d4 >= 1000 && d4 <= 2000, "defaults: delay in [1000, 2000]");
 
-    // Zero/null attempt
     var d5 = Backoff.computeDelay(null, 2000, 30000);
     assert(d5 >= 1000 && d5 <= 2000, "null attempt treated as 0");
 })();
@@ -2746,15 +2627,12 @@ section("Backoff.computeDelay");
 section("Backoff.computeCooldownUntil");
 
 (function() {
-    // No errors — no cooldown
     assert(Backoff.computeCooldownUntil(0) === 0, "no cooldown when consecutiveErrors is 0");
 
-    // Cooldown should be in the future
     var until = Backoff.computeCooldownUntil(1, 2000, 30000);
     assert(until > Date.now(), "cooldown until is in the future after error");
     assert(until <= Date.now() + 2000, "cooldown until is at most base delay in the future for 1 error");
 
-    // Higher consecutive errors produce longer cooldowns (up to max)
     var until5 = Backoff.computeCooldownUntil(5, 2000, 30000);
     assert(until5 > Date.now(), "cooldown until is in the future for 5 errors");
     assert(until5 <= Date.now() + 30000, "cooldown until is at most maxDelay in the future");
@@ -2763,19 +2641,12 @@ section("Backoff.computeCooldownUntil");
 section("Backoff.isInCooldown");
 
 (function() {
-    // No cooldown
     assert(!Backoff.isInCooldown(0), "no cooldown when cooldownUntil is 0");
 
-    // Cooldown in the future — should be active
     assert(Backoff.isInCooldown(Date.now() + 5000), "in cooldown when cooldownUntil is in the future");
 
-    // Cooldown in the past — should NOT be active
     assert(!Backoff.isInCooldown(Date.now() - 1000), "not in cooldown when cooldownUntil is in the past");
 })();
-
-// ═════════════════════════════════════════════════════════════════
-// Providers.getModelList tests
-// ═════════════════════════════════════════════════════════════════
 
 section("Providers.getModelList");
 
@@ -2818,10 +2689,6 @@ section("Providers.getModelList");
     assert(Array.isArray(unknown), "unknown provider returns an array");
     assertEqual(unknown.length, 0, "unknown provider has no models");
 })();
-
-// ═════════════════════════════════════════════════════════════════
-// EphemeraPanel geometry regression tests
-// ═════════════════════════════════════════════════════════════════
 
 section("EphemeraPanel bounded geometry and rapid side switching");
 
@@ -2952,10 +2819,6 @@ section("EphemeraPanel bounded geometry and rapid side switching");
         "portable and live panel harnesses declare their layer-shell contract"
     );
 })();
-
-// ═════════════════════════════════════════════════════════════════
-// ChatHeader tooltip coverage
-// ═════════════════════════════════════════════════════════════════
 
 section("ChatHeader action tooltips");
 
@@ -3227,10 +3090,6 @@ section("Conversation export lifecycle wiring");
     );
 })();
 
-// ═════════════════════════════════════════════════════════════════
-// Release/version maintenance contract
-// ═════════════════════════════════════════════════════════════════
-
 section("Release and runtime version contracts");
 
 (function() {
@@ -3262,10 +3121,6 @@ section("Release and runtime version contracts");
             && testsWorkflowSource.indexOf("--import=disable") >= 0,
         "CI runs pinned ShellCheck and QML syntax/local-contract analysis");
 })();
-
-// ═════════════════════════════════════════════════════════════════
-// DMS injected-property contract
-// ═════════════════════════════════════════════════════════════════
 
 section("EphemeraDaemon DMS injected properties");
 
@@ -3328,7 +3183,42 @@ section("Keyboard safety and empty-state honesty");
     );
 })();
 
-// ─── Summary ───────────────────────────────────────────────────
+(function testCommentLint() {
+    section("Comment lint scanner");
+    var lint = require("./lint_comments.js");
+    function found(file, source) {
+        return lint.commentsIn(file, source).map(function(comment) { return comment.text; });
+    }
+
+    assertDeepEqual(
+        found("a.js", 'var url = "http://x/*y*/"; var re = /\\/\\/[/*]/; var t = `// ${ a /* in */ } //`; a = b / c; // end'),
+        ["/* in */", "// end"],
+        "ignores comment markers inside strings, regex literals, and template text"
+    );
+    assertDeepEqual(
+        found("a.qml", "Item {\n    /* one\n       two */\n    width: parent.width / 2 // half\n}"),
+        ["/* one\n       two */", "// half"],
+        "finds block and trailing comments in QML"
+    );
+    assertDeepEqual(
+        found("a.js", '#!/usr/bin/env node\n// qmllint disable\nvar v = "1"; // x-release-please-version\n'),
+        [],
+        "exempts machine-read directives"
+    );
+    assertDeepEqual(
+        found("a.sh", "#!/bin/sh\n# shellcheck disable=SC2086\necho \"# no\" '# no' ${x#y} $# # yes\ncat <<EOF\n# heredoc\nEOF\n# after\n"),
+        ["# yes", "# after"],
+        "finds shell comments outside quotes, expansions, and heredocs"
+    );
+    assertEqual(lint.commentsIn("a.md", "<!-- prose -->"), null, "leaves non-source files out of scope");
+
+    var commented = "a {\n    // gone\n\n    b: 1 // gone\n\n    // gone\n\n    c: `\n\n\n`\n\n    // gone\n}\n";
+    assertEqual(
+        lint.strip(commented, lint.commentsIn("a.qml", commented)),
+        "a {\n    b: 1\n\n    c: `\n\n\n`\n}\n",
+        "strip removes comments and only the blank lines they leave behind"
+    );
+})();
 
 console.log("\n" + "=".repeat(50));
 console.log("Results: " + passed + " passed, " + failed + " failed");

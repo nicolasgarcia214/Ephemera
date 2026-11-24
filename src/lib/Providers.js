@@ -1,31 +1,14 @@
 .pragma library
 
-// Secure curl command builder for Ephemera.
-// Security improvements over DMS AI Assistant:
-//   1. Body via stdin (-d @-) — conversation never in /proc/cmdline
-//   2. Gemini key as header (x-goog-api-key) — not in URL query param
-//   3. No --compressed flag (breaks StdioCollector)
-
-/**
- * Validate a URL for use as a provider base URL.
- *
- * Enforces: http(s) scheme only, valid hostname, max 2048 chars, no control
- * characters, default-ignorable formatting code points, or characters unsafe in URLs
- * (angle brackets, quotes, backticks, curly braces, pipes, backslashes, spaces).
- *
- * @param {string} url - URL to validate.
- * @returns {{ valid: boolean, error: string }} error is empty when valid or when URL is absent.
- */
 function validateUrl(url) {
     var u = (url || "").trim();
-    if (!u) return { valid: false, error: "" }; // empty is not an error, just absent
+    if (!u) return { valid: false, error: "" };
     if (u.length > 2048)
         return { valid: false, error: "URL is too long (max 2048 characters)." };
     if (!/^https?:\/\//i.test(u))
         return { valid: false, error: "Must start with http:// or https://" };
     if (!/^https?:\/\/[a-zA-Z0-9]/.test(u))
         return { valid: false, error: "Invalid hostname in URL." };
-    // Reject control characters and characters unsafe in URLs (prevents injection via path)
     if (/[\x00-\x20\x7f-\x9f<>"'{}|\\^`]/.test(u))
         return { valid: false, error: "URL contains invalid characters." };
     if (_containsUnsafeUnicodeFormatting(u))
@@ -33,31 +16,10 @@ function validateUrl(url) {
     return { valid: true, error: "" };
 }
 
-/**
- * Validate a custom OpenAI-compatible provider base URL.
- *
- * Custom providers may use HTTPS on any valid hostname. Plaintext HTTP is
- * limited to the exact localhost name or an unambiguous dotted-decimal address
- * in 127.0.0.0/8. Userinfo is never accepted because curl would transmit it as
- * credentials independently of the configured API key.
- *
- * @param {string} url - Custom provider base URL to validate.
- * @returns {{ valid: boolean, error: string }} error is safe to show to users.
- */
 function validateCustomProviderUrl(url) {
     return _validateSecureProviderUrl(url, "Custom provider");
 }
 
-/**
- * Validate an Ollama endpoint.
- *
- * Remote Ollama endpoints must use HTTPS. Plaintext HTTP is limited to exact
- * localhost or dotted-decimal 127.0.0.0/8 endpoints, matching the custom
- * provider transport policy.
- *
- * @param {string} url - Ollama base URL to validate.
- * @returns {{ valid: boolean, error: string }} error is safe to show to users.
- */
 function validateOllamaUrl(url) {
     return _validateSecureProviderUrl(url, "Ollama");
 }
@@ -108,14 +70,6 @@ function _validateSecureProviderUrl(url, displayName) {
     return { valid: true, error: "" };
 }
 
-/**
- * Return whether Ephemera can safely manage the local process behind an
- * Ollama endpoint. `ollama serve` uses only these default local identities;
- * every other valid endpoint is probe-only.
- *
- * @param {string} url - Validated Ollama base URL.
- * @returns {boolean} True only for the default local HTTP endpoints.
- */
 function isManagedLocalOllamaUrl(url) {
     var normalized = normalizeBaseUrl(url);
     return normalized === "http://localhost:11434"
@@ -160,9 +114,6 @@ function _isValidHostname(host) {
     return true;
 }
 
-// Unicode 17 Default_Ignorable_Code_Point ranges, plus line separators,
-// interlinear annotation controls, and unpaired surrogates that can change
-// when a JavaScript string is encoded for process argv.
 function _isUnsafeFormattingCodePoint(codePoint) {
     return codePoint === 0x00ad || codePoint === 0x034f || codePoint === 0x061c
         || (codePoint >= 0x115f && codePoint <= 0x1160)
@@ -210,22 +161,11 @@ function normalizeBaseUrl(url) {
     return u.endsWith("/") ? u.slice(0, -1) : u;
 }
 
-/**
- * Sanitize an API key by stripping newlines and control characters.
- *
- * Prevents HTTP header injection by removing CR, LF, null bytes, and all
- * C0 control characters (U+0000–U+001F). The result is trimmed.
- *
- * @param {string} key - Raw API key string.
- * @returns {string} Sanitized key, or "" if input is falsy.
- */
 function sanitizeApiKey(key) {
     if (!key) return "";
     return key.replace(/[\r\n\x00-\x1f]/g, "").trim();
 }
 
-// Shared helper: separates system messages from conversation messages.
-// Returns { systemText: string, filtered: Array<{role, content}> }
 function extractSystemPrompt(messages) {
     var systemText = "";
     var filtered = [];
@@ -247,16 +187,6 @@ function openaiChatCompletionsUrl(baseUrl) {
     return b + "/v1/chat/completions";
 }
 
-/**
- * Escape a string for use inside a double-quoted curl config value.
- *
- * Curl config files (-K) use "value" syntax where backslashes, double quotes,
- * and whitespace characters must be escaped. Without this, a JSON body containing
- * quotes would break the config parser.
- *
- * @param {string} str - Raw string to escape.
- * @returns {string} Escaped string safe for curl config double-quoted context.
- */
 function escapeCurlConfig(str) {
     if (!str) return "";
     return str
@@ -267,20 +197,6 @@ function escapeCurlConfig(str) {
         .replace(/\t/g, "\\t");
 }
 
-/**
- * Build a curl command array and stdin config body for a streaming API request.
- *
- * All sensitive data (URL, auth headers, request body) is passed through a curl
- * config file on stdin (-K -), ensuring nothing appears in /proc/cmdline or ps output.
- *
- * @param {string} provider - Provider identifier.
- * @param {Object} payload - Request payload (must include baseUrl, model, messages, timeout, etc.).
- * @param {string} apiKey - Resolved API key (may be empty for Ollama).
- * @returns {{ cmd: string[], body: string } | { error: string } | null}
- *   cmd: curl argument array (no secrets). body: curl config string to write to stdin.
- *   Returns an error-only object for a rejected endpoint, or null if the
- *   provider requires a key but none is provided.
- */
 function buildCurlCommand(provider, payload, apiKey) {
     var request = buildRequest(provider, payload, apiKey);
     if (!request)
@@ -291,7 +207,6 @@ function buildCurlCommand(provider, payload, apiKey) {
         return null;
 
     var timeout = payload.timeout || 30;
-    // Command has no secrets — URL, headers, and body all go through stdin config
     var cmd = [
         "curl", "-q", "-K", "-",
         "--proto", "=http,https",
@@ -300,12 +215,10 @@ function buildCurlCommand(provider, payload, apiKey) {
         "-N", "-sS", "--no-buffer", "--show-error",
         "--connect-timeout", "5",
         "--max-time", String(timeout),
-        // Bounds an unterminated line before it reaches the line parser.
         "--max-filesize", "5242880",
         "-w", "\\nEPH_STATUS:%{http_code}\\n"
     ];
 
-    // Build curl config for stdin — hides URL, auth headers, and body from /proc/cmdline
     var config = 'url = "' + escapeCurlConfig(request.url) + '"\n';
     config += 'request = "POST"\n';
     config += 'header = "Content-Type: application/json"\n';
@@ -383,19 +296,9 @@ function ollamaRequest(payload) {
         if (thinkingMode !== "default")
             body.reasoning_effort = thinkingMode;
     }
-    // No auth header for Ollama
     return { url: url, headers: [], body: JSON.stringify(body) };
 }
 
-/**
- * Normalize an optional Ollama context window. Zero uses the model default;
- * explicit values are bounded to avoid accidental extreme memory allocation.
- * Explicit values round up to a supported preset so the persisted value and
- * settings UI cannot diverge.
- *
- * @param {*} value - Requested context size.
- * @returns {number} 0 or one of 4096, 8192, 16384, 32768, 65536, 131072.
- */
 function normalizeOllamaContextWindow(value) {
     var parsed = Number(value);
     if (!isFinite(parsed) || parsed <= 0)
@@ -472,7 +375,6 @@ function anthropicRequest(payload, apiKey) {
         headers.push("-H", "anthropic-beta: interleaved-thinking-2025-05-14");
     }
 
-    // Extract system prompt from messages if present
     var extracted = extractSystemPrompt(payload.messages);
     var filteredMessages = [];
     for (var i = 0; i < extracted.filtered.length; i++) {
@@ -483,12 +385,10 @@ function anthropicRequest(payload, apiKey) {
         });
     }
 
-    // Anthropic requires max_tokens and rejects values above each model's cap.
     var outputCap = _anthropicOutputCap(payload.model);
     var requestedMax = Number(payload.max_tokens);
     var maxTokens = (isFinite(requestedMax) && requestedMax > 0)
         ? Math.min(Math.floor(requestedMax), outputCap) : outputCap;
-    // Manual thinking requires a minimum 1,024-token budget strictly below max_tokens.
     if (payload.thinkingEnabled && thinkingMode === "manual" && maxTokens <= 1024)
         maxTokens = Math.min(1025, outputCap);
     var alwaysThinking = _anthropicAlwaysThinking(payload.model);
@@ -592,17 +492,14 @@ function _anthropicOutputCap(model) {
 
 function geminiRequest(payload, apiKey) {
     var base = normalizeBaseUrl(payload.baseUrl || "https://generativelanguage.googleapis.com");
-    // Validate model name — prevent path traversal via user-supplied free text
     var model = payload.model || "gemini-3.8-flash";
     if (!/^[a-zA-Z0-9._:\-]+$/.test(model)) return null;
-    // Key as header, NOT in URL — security fix
     var url = base + "/v1beta/models/" + model
         + ":streamGenerateContent?alt=sse";
     var safeKey = sanitizeApiKey(apiKey);
     if (!safeKey) return null;
     var headers = ["-H", "x-goog-api-key: " + safeKey];
 
-    // Extract system prompt
     var extracted = extractSystemPrompt(payload.messages);
     var contents = [];
     for (var i = 0; i < extracted.filtered.length; i++) {
@@ -635,10 +532,6 @@ function customRequest(payload, apiKey) {
         return { error: validation.error };
     return _openaiCompatibleRequest(payload, apiKey, "custom");
 }
-
-// ─── Provider Registry ──────────────────────────────────────────
-// Centralized metadata for each provider. Adding a new provider only requires
-// adding one entry here and a buildRequest function above.
 
 var registry = {
     "ollama": {
@@ -710,31 +603,11 @@ function getProviderNames() {
     return Object.keys(registry);
 }
 
-/**
- * Get the hardcoded model list for a provider.
- *
- * Returns the models array from the registry entry, or an empty array
- * if the provider has no predefined models (e.g. ollama, custom).
- *
- * @param {string} provider - Provider identifier.
- * @returns {string[]} Array of model name strings.
- */
 function getModelList(provider) {
     var info = registry[provider];
     return (info && info.models) ? info.models : [];
 }
 
-/**
- * Clamp temperature to a provider's valid range, or return undefined if unsupported.
- *
- * OpenAI o-series and older GPT-5 reasoning models do not support temperature.
- * Falls back to the provider's default temperature when the input is null/undefined.
- *
- * @param {string} provider - Provider identifier.
- * @param {string} model - Model name (checked for OpenAI compatibility).
- * @param {number} temperature - Requested temperature value.
- * @returns {number|undefined} Clamped temperature, or undefined if the model rejects temperature.
- */
 function clampTemperature(provider, model, temperature) {
     var info = registry[provider] || registry["custom"];
     if (provider === "openai" && (_isOpenAiOSeriesModel(model)

@@ -15,14 +15,12 @@ Item {
 
     property string pluginId: "ephemera"
 
-    // --- Message state (live state; persistence uses bounded snapshots) ---
     property ListModel messagesModel: ListModel {}
     property int messageCount: messagesModel.count
     property var messageIndexMap: ({})
     property var variantStore: ({})
     property string lastUserText: ""
 
-    // --- Streaming (delegated to StreamingService) ---
     property alias isStreaming: streamingService.isStreaming
     property alias activeStreamId: streamingService.activeStreamId
     property alias streamStartTime: streamingService.streamStartTime
@@ -47,16 +45,11 @@ Item {
     signal keyringOperationSucceeded(string operationId, string operation, string provider)
     signal keyringOperationFailed(string operationId, string operation, string provider, string message)
 
-    // --- Persistence (opt-in) ---
     property bool persistChat: false
     property bool _chatHistoryTrimmed: false
     readonly property bool chatHistoryTrimmed: _chatHistoryTrimmed
     readonly property string _chatStateKey: "chatState"
     readonly property int _chatStateVersion: 1
-    // Snapshots retain at most 200 completed messages (normally 100 paired
-    // user/assistant turns), 10 variants per assistant, 32 KiB content/thinking
-    // fields, 512-byte model fields, and a 1 MiB serialized payload. These
-    // bounds never alter the live chat model.
     readonly property int persistedMessageLimit: ChatPersistence.maxMessages
     readonly property int maxVariantsPerMessage: ChatPersistence.maxVariantsPerMessage
     readonly property int persistedContentByteLimit: ChatPersistence.maxContentBytes
@@ -64,7 +57,6 @@ Item {
     readonly property int persistedModelByteLimit: ChatPersistence.maxModelBytes
     readonly property int persistedPayloadByteLimit: ChatPersistence.maxSerializedBytes
 
-    // --- Provider settings ---
     property string _provider: "ollama"
     readonly property string provider: _provider
     property string ollamaUrl: "http://localhost:11434"
@@ -80,7 +72,6 @@ Item {
     property string systemPrompt: ""
     property bool thinkingEnabled: false
     property bool panelOnLeft: false
-    // --- MCP ---
     property bool mcpEnabled: false
     property bool mcpAllowToolRequests: false
     property string mcpToolRequestsTrustKey: ""
@@ -102,7 +93,6 @@ Item {
     property bool _settingsLoaded: false
     property bool _loadingSettings: false
 
-    // --- Ollama (delegated to OllamaManager) ---
     property alias availableModels: ollamaManager.availableModels
     property alias ollamaWeStarted: ollamaManager.ollamaWeStarted
     property alias ollamaStartPending: ollamaManager.ollamaStartPending
@@ -115,11 +105,9 @@ Item {
     readonly property int ollamaMaxRetries: ollamaManager.ollamaMaxRetries
     readonly property bool ollamaLifecycleManaged: ollamaManager.localProcessManaged
 
-    // --- Keyring (delegated to KeyringService) ---
     property alias _keyringAvailable: keyringService._keyringAvailable
     property alias _keyringCache: keyringService._keyringCache
 
-    // Per-provider temperature range
     readonly property var temperatureRange: Providers.getTemperatureRange(provider)
     readonly property real tempMax: temperatureRange.max
     readonly property real tempMin: temperatureRange.min
@@ -139,8 +127,6 @@ Item {
     readonly property bool needsApiKey: provider !== "ollama"
     readonly property bool hasApiKey: resolveApiKey().length > 0
     readonly property bool missingApiKey: needsApiKey && !hasApiKey
-
-    // --- Lifecycle ---
 
     Component.onCompleted: {
         loadSettings();
@@ -165,8 +151,6 @@ Item {
         else
             mcpServiceInstance.disconnectFromServer();
     }
-
-    // ─── Child services ─────────────────────────────────────────────
 
     KeyringService {
         id: keyringService
@@ -255,8 +239,6 @@ Item {
         }
     }
 
-    // ─── Keyring facade ─────────────────────────────────────────────
-
     function resolveApiKey(prov) { return keyringService.resolveApiKey(prov || provider); }
     function hasApiKeyForProvider(prov) { return keyringService.hasApiKeyForProvider(prov); }
     function apiKeySource(prov) { return keyringService.apiKeySource(prov); }
@@ -269,15 +251,11 @@ Item {
         return info.envVar || "EPHEMERA_API_KEY";
     }
 
-    // ─── Ollama facade ──────────────────────────────────────────────
-
     function shutdownOllama() { ollamaManager.shutdown(); }
     function forceShutdownExternalOllama() { ollamaManager.forceShutdownExternal(); }
     function ensureOllamaReady() { if (isOllama) ollamaManager.ensureReady(); }
     function scheduleIdleShutdown() { if (isOllama) ollamaManager.scheduleIdleShutdown(); }
     function discoverModels() { ollamaManager.discoverModels(); }
-
-    // ─── Settings persistence (non-secret only) ────────────────────
 
     function loadSettings() {
         if (_loadingSettings)
@@ -386,7 +364,6 @@ Item {
         if (next === provider)
             return false;
 
-        // Reset the active request and its tool state before changing identity.
         clearChat();
         _provider = next;
         saveSettingValue("provider", next);
@@ -404,8 +381,6 @@ Item {
         if (provider === "ollama")
             baseUrl = next;
 
-        // PluginService emits synchronously, so persist only after every
-        // request and discovery consumer has received the new identity.
         if (persistChange !== false && changed)
             saveSettingValue("ollamaUrl", next);
         return true;
@@ -527,8 +502,6 @@ Item {
         }
     }
 
-    // ─── Chat state ────────────────────────────────────────────────
-
     function setPersistChat(enabled) {
         var next = enabled === true;
         if (!next)
@@ -546,8 +519,6 @@ Item {
         var variants = PluginService.loadPluginData(pluginId, "chatVariants", "");
         if (history === "" && variants === "") return;
 
-        // Legacy cleanup emits pluginDataChanged synchronously. Suppress a
-        // settings reload until both halves have been removed.
         _settingsReloadDebounce.restart();
         if (history !== "")
             PluginService.savePluginData(pluginId, "chatHistory", "");
@@ -686,7 +657,6 @@ Item {
             if (!migrated)
                 throw new Error("invalid legacy state");
 
-            // Promote the fully validated pair before erasing the legacy keys.
             PluginService.savePluginState(
                 pluginId, _chatStateKey, migrated.payload);
             _clearLegacyChatData();
@@ -695,8 +665,6 @@ Item {
             _discardInvalidStoredChat(e);
         }
     }
-
-    // ─── Messaging orchestration ───────────────────────────────────
 
     function canSubmitMessage(text) {
         return Submission.isReady(
@@ -808,8 +776,6 @@ Item {
         messagesModel.setProperty(idx, "status", variant.errorText ? "error" : "ok");
     }
 
-    // ─── Export ─────────────────────────────────────────────────────
-
     function buildConversationMarkdown() {
         var msgs = [];
         for (var i = 0; i < messagesModel.count; i++) {
@@ -848,7 +814,6 @@ Item {
             msgId, _messageExportText(messagesModel.get(idx)));
     }
 
-    // A failed response exports its partial text followed by the error.
     function _messageExportText(m) {
         var content = m.content || "";
         if (m.status !== "error" || !m.errorText)
@@ -880,8 +845,6 @@ Item {
         }
     }
 
-    // ─── Message helpers ───────────────────────────────────────────
-
     function _createMessageEntry(role, content, id, timestamp, status, modelName) {
         return {
             role: role, content: content || "", thinking: "",
@@ -902,8 +865,6 @@ Item {
     function findIndexById(msgId) {
         return messageIndexMap[msgId] !== undefined ? messageIndexMap[msgId] : -1;
     }
-
-    // ─── Internal: streaming orchestration ─────────────────────────
 
     function _startStreaming(text) {
         var now = Date.now();
@@ -1115,8 +1076,6 @@ Item {
         return Providers.buildCurlCommand(requestProvider, payload, key);
     }
 
-    // ─── Stream signal handlers (apply to messagesModel) ───────────
-
     function _applyStreamContent(streamId, content, variantIndex) {
         var idx = findIndexById(streamId);
         if (idx >= 0) {
@@ -1170,7 +1129,6 @@ Item {
                 messagesModel.setProperty(idx, "content", result.content);
                 messagesModel.setProperty(idx, "thinking", result.thinking);
             }
-            // The banner belongs to whichever variant is on screen.
             var shown = VariantStore.getVariant(variantStore, streamId, msg.variantIndex);
             var shownError = shown ? (shown.errorText || "") : message;
             messagesModel.setProperty(idx, "errorText", shownError);

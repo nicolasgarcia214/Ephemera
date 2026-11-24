@@ -123,8 +123,6 @@ ShellRoot {
         return null;
     }
 
-    // An idle timeout during a stream (or MCP approval pause) must re-arm,
-    // not silently expire and leave the owned server running forever.
     function checkIdleTimeoutDuringStream() {
         var timer = idleTimer();
         if (!check(timer !== null, "Ollama idle timer not found")) return false;

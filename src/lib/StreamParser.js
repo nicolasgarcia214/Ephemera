@@ -1,8 +1,5 @@
 .pragma library
 
-// Pure SSE stream parsing functions for Ephemera.
-// These functions take state as input and return updates — no side effects.
-
 var _providerErrorMessage = "The provider reported an error while generating the response.";
 var _providerRefusalMessage = "The provider refused to generate a response.";
 var _providerBlockedMessage = "The provider blocked the response.";
@@ -108,17 +105,6 @@ function _providerEnvelopeError(data, provider) {
     return _openAiEnvelopeError(data);
 }
 
-/**
- * Split raw SSE data into complete lines and a remaining buffer.
- *
- * Combines the previous buffer with the new chunk, splits on newlines (LF or CRLF),
- * and returns complete lines plus any trailing incomplete line as the new buffer.
- * Empty/whitespace-only lines are discarded.
- *
- * @param {string} chunk - New data received from the stream.
- * @param {string} buffer - Incomplete line carried over from the previous call.
- * @returns {{ lines: string[], buffer: string }}
- */
 function splitLines(chunk, buffer) {
     var combined = buffer + chunk;
     var parts = combined.split(/\r?\n/);
@@ -137,33 +123,6 @@ function splitLines(chunk, buffer) {
     return { lines: lines, buffer: remaining };
 }
 
-/**
- * Parse a single SSE JSON payload into content/thinking deltas.
- *
- * Handles four provider formats:
- * - Anthropic: content_block_delta with thinking_delta or text_delta types.
- * - Gemini: candidates[].content.parts[].text (supports array or single object).
- * - Ollama: native message.content/tool_calls and OpenAI-compatible choices[].delta.
- * - OpenAI/Custom: choices[0].delta.content and .reasoning_content/.reasoning.
- *
- * Also extracts token usage from provider-specific fields when available:
- * - Anthropic: usage.output_tokens from message_delta events.
- * - Gemini: usageMetadata.candidatesTokenCount from any chunk.
- * - Ollama: eval_count from native final chunks or usage.completion_tokens from OpenAI-compatible final chunks.
- * - OpenAI: usage.completion_tokens from the final chunk.
- *
- * @param {string} jsonText - Raw JSON string (after stripping "data:" prefix if present).
- * @param {string} provider - Provider identifier ("anthropic"|"gemini"|"ollama"|"openai"|"custom").
- * @returns {{ content: string, thinking: string, done: boolean, outputTokens: number, usageReceived: boolean, openAiCompatible: boolean, toolCalls: Array|false, error: string }}
- *   content: assistant text delta (empty string if none).
- *   thinking: reasoning/thinking delta (empty string if none).
- *   done: true if the provider signaled stream completion.
- *   outputTokens: completion token count from API (0 if not present in this event).
- *   usageReceived: true if this event carries a provider completion-token count.
- *   openAiCompatible: true for OpenAI Chat Completions-shaped events.
- *   toolCalls: provider tool call requests, or false if this chunk has none.
- *   error: bounded user-facing provider error/refusal message, or an empty string.
- */
 function parseDelta(jsonText, provider) {
     var result = {
         content: "", thinking: "", done: false, outputTokens: 0,
@@ -187,7 +146,6 @@ function parseDelta(jsonText, provider) {
             }
             if (data.type === "message_delta" && data.delta && data.delta.stop_reason)
                 result.done = true;
-            // Anthropic sends usage.output_tokens on message_delta
             if (data.type === "message_delta" && data.usage
                     && typeof data.usage.output_tokens === "number"
                     && isFinite(data.usage.output_tokens)
@@ -206,13 +164,11 @@ function parseDelta(jsonText, provider) {
                 var cparts = content.parts;
                 for (var pi = 0; pi < cparts.length; pi++) {
                     if (!cparts[pi] || !cparts[pi].text) continue;
-                    // includeThoughts summaries arrive as parts flagged thought: true
                     if (cparts[pi].thought === true)
                         result.thinking += cparts[pi].text;
                     else
                         result.content += cparts[pi].text;
                 }
-                // Gemini includes usageMetadata with token counts
                 var meta = chunks[ci].usageMetadata;
                 if (meta && typeof meta.candidatesTokenCount === "number"
                         && isFinite(meta.candidatesTokenCount)
@@ -254,7 +210,6 @@ function parseDelta(jsonText, provider) {
                 }
             }
         } else {
-            // OpenAI / OpenAI-compatible
             result.openAiCompatible = true;
             var choices = data.choices;
             if (choices && choices[0] && choices[0].delta) {
@@ -264,7 +219,6 @@ function parseDelta(jsonText, provider) {
             }
             if (choices && choices[0] && choices[0].finish_reason)
                 result.done = true;
-            // OpenAI sends usage in the final chunk
             if (data.usage && typeof data.usage.completion_tokens === "number"
                     && isFinite(data.usage.completion_tokens)
                     && data.usage.completion_tokens >= 0) {
@@ -278,25 +232,6 @@ function parseDelta(jsonText, provider) {
     return result;
 }
 
-/**
- * Route streaming text through <think>/</think> tag detection.
- *
- * Processes a delta chunk against the current tag-parsing state to separate
- * thinking content (inside <think> tags) from regular content. Handles partial
- * tags that span chunk boundaries by buffering candidate bytes.
- *
- * State machine: starts outside think tags. When <think> is found, subsequent
- * text routes to thinkingParts until </think> closes it. A leading newline
- * after a tag is consumed (stripped) to avoid blank lines in output.
- *
- * @param {string} delta - New text chunk from the SSE stream.
- * @param {string} tagBuffer - Buffered partial tag from previous call.
- * @param {boolean} insideThinkTag - Whether the parser is currently inside a <think> block.
- * @returns {{ contentParts: string[], thinkingParts: string[], tagBuffer: string, insideThinkTag: boolean }}
- *   contentParts/thinkingParts: text fragments to append to content/thinking buffers.
- *   tagBuffer: partial tag carried forward (empty if no partial match).
- *   insideThinkTag: updated state for next call.
- */
 function routeThinkTags(delta, tagBuffer, insideThinkTag) {
     var result = { contentParts: [], thinkingParts: [], tagBuffer: "", insideThinkTag: insideThinkTag };
     var text = tagBuffer + delta;
@@ -317,7 +252,6 @@ function routeThinkTags(delta, tagBuffer, insideThinkTag) {
             text = text.substring(idx + tag.length);
             if (text.startsWith("\n")) text = text.substring(1);
         } else {
-            // Check for partial tag at end of buffer
             var partialLen = 0;
             for (var len = Math.min(text.length, tag.length - 1); len > 0; len--) {
                 if (text.substring(text.length - len) === tag.substring(0, len)) {
@@ -348,18 +282,6 @@ function routeThinkTags(delta, tagBuffer, insideThinkTag) {
     return result;
 }
 
-/**
- * Parse a non-streaming response body for all provider formats.
- *
- * Used as a fallback when no streaming deltas were received but the HTTP
- * response was successful. Handles Anthropic (content[].text), Gemini
- * (candidates[].content.parts[].text, skipping thought summaries), Ollama native/OpenAI-compatible, and
- * OpenAI/Custom (choices[].message.content).
- *
- * @param {string} bodyText - Raw response body (JSON string).
- * @param {string} provider - Provider identifier.
- * @returns {string} Assistant text content, or "" on failure/missing data.
- */
 function extractNonStreamingText(bodyText, provider) {
     try {
         var data = JSON.parse(bodyText);
@@ -396,7 +318,6 @@ function extractNonStreamingText(bodyText, provider) {
             if (data.message && typeof data.message.content === "string")
                 return data.message.content;
         }
-        // OpenAI / OpenAI-compatible
         var choices = data.choices;
         if (choices && choices[0]) {
             if (choices[0].message && typeof choices[0].message.content === "string")
@@ -410,16 +331,6 @@ function extractNonStreamingText(bodyText, provider) {
     return "";
 }
 
-/**
- * Extract HTTP status from EPH_STATUS marker appended by curl's -w flag.
- *
- * The curl command is configured with -w "\\nEPH_STATUS:%{http_code}\\n" to
- * append the status code after the response body. This function parses that
- * marker and returns the status plus the body text with the marker stripped.
- *
- * @param {string} text - Full curl stdout output (body + status marker).
- * @returns {{ status: number, body: string }} status: HTTP code (0 if no marker). body: response without marker.
- */
 function extractHttpStatus(text) {
     var match = (text || "").match(/EPH_STATUS:(\d+)/);
     var status = match ? parseInt(match[1]) : 0;

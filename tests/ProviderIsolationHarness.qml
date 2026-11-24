@@ -90,9 +90,6 @@ ShellRoot {
         currentProvider = "ollama";
         streaming.beginStream("old-ollama", 0, []);
         var oldContext = streaming.activeStreamContext();
-        // Use an OpenAI-compatible event even though this launch starts under
-        // Ollama. If it leaks after the provider switch, the replacement
-        // parser would accept it and make the isolation failure observable.
         var staleLine = "data: " + JSON.stringify({
             choices: [{ delta: { content: "STALE_CLOUD_OUTPUT" } }]
         });

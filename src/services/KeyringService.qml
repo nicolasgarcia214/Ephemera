@@ -6,10 +6,8 @@ import "../lib/Providers.js" as Providers
 Item {
     id: root
 
-    // --- Input (set by parent) ---
     property string provider: "ollama"
 
-    // --- Keyring state ---
     property var _keyringCache: ({})
     property bool _keyringAvailable: false
     property var _keyringQueue: []
@@ -20,8 +18,6 @@ Item {
 
     signal keyringOperationSucceeded(string operationId, string operation, string provider)
     signal keyringOperationFailed(string operationId, string operation, string provider, string message)
-
-    // --- Public API ---
 
     function resolveApiKey(prov) {
         var info = Providers.getProviderInfo(prov);
@@ -72,9 +68,6 @@ Item {
         return _enqueueKeyringOperation("clear", prov, "");
     }
 
-    // --- Internal ---
-
-    // Always return a new object so QML property var change detection fires.
     function _cloneCache() {
         var c = {};
         var old = _keyringCache;
@@ -187,8 +180,6 @@ Item {
         }
         keyringCommand.running = true;
     }
-
-    // --- Processes ---
 
     Process {
         id: secretToolCheck
