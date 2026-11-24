@@ -32,7 +32,7 @@ Status: accepted. Recorded 2026-11-24 from comments in `Providers.js`.
 - `isManagedLocalOllamaUrl` is true only for the default local HTTP
   identities that `ollama serve` uses. Every other valid endpoint is
   probe-only: Ephemera never starts or stops a server behind it.
-- `_isUnsafeFormattingCodePoint` covers the Unicode 17
+- `isUnsafeFormattingCodePoint` in `UnicodeSafety.js` covers the Unicode 17
   `Default_Ignorable_Code_Point` ranges plus line separators and interlinear
   annotation controls. `_containsUnsafeUnicodeFormatting` also rejects
   unpaired surrogates, which can change when a JavaScript string is encoded
