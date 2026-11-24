@@ -2,6 +2,7 @@
 
 var fs = require("fs");
 var path = require("path");
+var vm = require("vm");
 
 var passed = 0;
 var failed = 0;
@@ -50,15 +51,9 @@ function assertDeepEqual(actual, expected, message) {
 
 function loadPragmaLib(filename) {
     var src = fs.readFileSync(path.join(__dirname, "..", filename), "utf8");
-    src = src.replace(/^\.pragma library\s*/, "");
-    src = src.replace(/console\.warn\([^)]*\);?/g, "");
-    var mod = {};
-    var funcNames = (src.match(/^function\s+(\w+)/gm) || []).map(function(m) { return m.replace("function ", ""); });
-    var varNames = (src.match(/^var\s+(\w+)/gm) || []).map(function(m) { return m.replace("var ", ""); });
-    var exports = funcNames.concat(varNames);
-    var fn = new Function("module", "exports", src + "\nmodule.exports = { " + exports.join(", ") + " };");
-    fn(mod, mod.exports);
-    return mod.exports;
+    var context = { console: { warn: function() {} } };
+    vm.runInNewContext(src.replace(/^\.pragma library/, ""), context, { filename: filename });
+    return context;
 }
 
 var StreamParser = loadPragmaLib("src/lib/StreamParser.js");
