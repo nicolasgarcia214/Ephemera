@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.3.0](https://github.com/nicolasgarcia214/Ephemera/compare/v1.2.1...v1.3.0) (2026-11-24)
+
+
+### Features
+
+* ✨ add Gemini thinking, refresh Gemini models, and fix stream bugs ([2dfeddb](https://github.com/nicolasgarcia214/Ephemera/commit/2dfeddbd3d01069aa57c3f73f1b304931f475f63))
+
+
+### Bug Fixes
+
+* 🐛 harden the comment lint and correct ADRs after independent review ([cb3cd1b](https://github.com/nicolasgarcia214/Ephemera/commit/cb3cd1b93b34b49961e4637763f3bc2886b2e9c5))
+* **tests:** 🐛 skip non-file entries in the comment lint ([7a8e74d](https://github.com/nicolasgarcia214/Ephemera/commit/7a8e74d6f65c5bba496d617c1c916ca4529f150e))
+
 ## [1.2.1](https://github.com/nicolasgarcia214/Ephemera/compare/v1.2.0...v1.2.1) (2026-07-17)
 
 
