@@ -59,10 +59,8 @@ Item {
     property string renderedHtml: ""
     property string _lastRenderKey: ""
 
-    readonly property string _errorMessage:
-        status !== "error" ? "" : (errorText.length > 0 ? errorText : text)
-    readonly property bool _showsContent:
-        status !== "error" || (errorText.length > 0 && text.length > 0)
+    readonly property string _errorMessage: status === "error" ? errorText : ""
+    readonly property bool _showsContent: status !== "error" || text.length > 0
     readonly property int _errorBreak: _errorMessage.indexOf("\n")
     readonly property string _errorTitle:
         (_errorBreak < 0 ? _errorMessage : _errorMessage.substring(0, _errorBreak)).trim()

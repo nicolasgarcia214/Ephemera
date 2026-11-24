@@ -205,6 +205,17 @@ function _sanitizeText(value, limit, result, disclose) {
     return normalized;
 }
 
+function _isLegacyError(message) {
+    return message.status === "error" && !message.errorText;
+}
+
+function _moveContentToErrorText(entry, result) {
+    if (entry.errorText || !entry.content) return;
+    entry.errorText = entry.content;
+    entry.content = "";
+    result.changed = true;
+}
+
 function _sanitizeMessage(message, result) {
     var status = message.status === undefined ? "ok" : message.status;
     if (status === "streaming") status = "ok";
@@ -229,6 +240,8 @@ function _sanitizeMessage(message, result) {
             message.errorText, maxContentBytes, result, true);
     else if (message.errorText)
         result.changed = true;
+    if (_isLegacyError(message))
+        _moveContentToErrorText(normalized, result);
     if (message.status === undefined || message.thinking === undefined
             || message.variantIndex === undefined
             || message.variantCount === undefined
@@ -239,7 +252,7 @@ function _sanitizeMessage(message, result) {
     return normalized;
 }
 
-function _sanitizeVariants(message, rawVariants, result) {
+function _sanitizeVariants(message, rawVariants, result, legacyError) {
     if (message.role !== "assistant")
         return [];
     if (!_hasOwn(rawVariants, message.id)) {
@@ -291,6 +304,7 @@ function _sanitizeVariants(message, rawVariants, result) {
         message.variantIndex = adjustedIndex;
         message.variantCount = variants.length;
         var selected = variants[adjustedIndex];
+        if (legacyError) _moveContentToErrorText(selected, result);
         if (message.content !== selected.content
                 || message.thinking !== selected.thinking
                 || message.modelName !== selected.modelName
@@ -405,7 +419,8 @@ function _normalize(payload, version) {
             var normalizedMessage = _sanitizeMessage(payload.messages[i], result);
             turn.messages.push(normalizedMessage);
             var normalizedVariants = _sanitizeVariants(
-                normalizedMessage, payload.variants, result);
+                normalizedMessage, payload.variants, result,
+                _isLegacyError(payload.messages[i]));
             if (normalizedVariants.length > 0)
                 turn.variants[normalizedMessage.id] = normalizedVariants;
         }

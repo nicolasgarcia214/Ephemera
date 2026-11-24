@@ -2216,6 +2216,87 @@ section("ChatPersistence error text");
         null, "rejects non-string variant error text");
 })();
 
+section("ChatPersistence legacy error migration");
+
+(function() {
+    var legacyError = "Request timed out.\nThe provider took too long to respond.";
+
+    function legacyTurn() {
+        var messages = persistedTurns(1, "question");
+        messages[1].status = "error";
+        messages[1].content = legacyError;
+        return messages;
+    }
+
+    function assertMigrated(message, label) {
+        assertEqual(message.status, "error", label + " keeps error status");
+        assertEqual(message.errorText, legacyError,
+            label + " carries the stored content as error text");
+        assertEqual(message.content, "", label + " ends with empty content");
+    }
+
+    function assertStable(payload, label) {
+        var again = ChatPersistence.prepareState(payload, 1);
+        assertEqual(again.changed, false, label + " is not migrated twice");
+        assertDeepEqual(again.payload, payload,
+            label + " is unchanged by a second load");
+    }
+
+    var prepared = ChatPersistence.prepareState(
+        { version: 1, messages: legacyTurn(), variants: {} }, 1);
+    assertMigrated(prepared.payload.messages[1],
+        "legacy error message without variants");
+    assertEqual(prepared.changed, true,
+        "marks a migrated legacy error message for rewrite");
+    assertStable(prepared.payload, "migrated legacy error message");
+
+    var messages = legacyTurn();
+    var id = messages[1].id;
+    messages[1].variantIndex = 1;
+    messages[1].variantCount = 2;
+    var variants = {};
+    variants[id] = [
+        { content: legacyError, thinking: "", modelName: "" },
+        { content: legacyError, thinking: "", modelName: "" }
+    ];
+    prepared = ChatPersistence.prepareState(
+        { version: 1, messages: messages, variants: variants }, 1);
+    assertMigrated(prepared.payload.messages[1],
+        "legacy error message with a v1.2.1 variants entry");
+    assertDeepEqual(prepared.payload.variants[id][1],
+        { content: "", thinking: "", modelName: "", errorText: legacyError },
+        "migrates the displayed legacy variant with its message");
+    assertDeepEqual(prepared.payload.variants[id][0], variants[id][0],
+        "leaves a legacy variant that is not displayed exactly as stored");
+    assertEqual(prepared.changed, true,
+        "marks a migrated legacy variant for rewrite");
+    assertStable(prepared.payload, "migrated legacy variants entry");
+
+    messages = persistedTurns(1, "partial answer");
+    id = messages[1].id;
+    messages[1].status = "error";
+    messages[1].errorText = legacyError;
+    variants = {};
+    variants[id] = [{
+        content: "partial answer", thinking: "", modelName: "",
+        errorText: legacyError
+    }];
+    var current = { version: 1, messages: messages, variants: variants, trimmed: true };
+    prepared = ChatPersistence.prepareState(current, 1);
+    assertEqual(prepared.changed, false,
+        "current-format error message needs no rewrite");
+    assertDeepEqual(prepared.payload, current,
+        "current-format error message and variant stay untouched");
+
+    var source = fs.readFileSync(
+        path.join(__dirname, "..", "src/components/MessageBubble.qml"), "utf8");
+    assert(source.indexOf(
+            'readonly property string _errorMessage: status === "error" ? errorText : ""') >= 0
+            && source.indexOf(
+            'readonly property bool _showsContent: status !== "error" || text.length > 0') >= 0,
+        "MessageBubble reads the error from errorText alone, with no legacy content fallback");
+})();
+
 section("ChatPersistence deterministic pruning and variants");
 
 (function() {

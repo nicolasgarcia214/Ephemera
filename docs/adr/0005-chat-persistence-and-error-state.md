@@ -50,6 +50,20 @@ Status: accepted. Recorded 2026-11-24 from comments in `ChatPersistence.js`,
   belongs to whichever variant is on screen.
 - An exported failed response is its partial text followed by the error.
 
+### Legacy error messages are migrated on load
+
+- Chats saved before `errorText` existed stored the error as the message
+  content. `_sanitizeMessage` moves that content into `errorText` for a
+  message with `status: "error"` and no `errorText`, so no view reads the old
+  format.
+- Those releases also saved the same text as a variant with no `errorText`.
+  `_sanitizeVariants` migrates the variant the message displays in the same
+  pass. Without that, variant reconciliation would restore the legacy variant
+  and turn the error back into ordinary content.
+- Legacy variants that are not displayed stay exactly as stored. A variant
+  carries no status, so a legacy error cannot be told apart from an ordinary
+  answer, and navigating to one shows its text as content.
+
 ### Keyring cache
 
 - `_cloneCache` always returns a new object. QML skips change notification
