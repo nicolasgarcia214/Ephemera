@@ -1,7 +1,0 @@
-interface:
-  display_name: "Delete Comment"
-  short_description: "Audit, record, and delete code comments"
-  default_prompt: "Use $delete-comment to audit and delete the code comments in this repository."
-
-policy:
-  allow_implicit_invocation: false

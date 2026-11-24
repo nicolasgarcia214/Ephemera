@@ -55,5 +55,6 @@ is read as division, so a regex literal in that position can be misread;
 - The conventions "all public functions have JSDoc comments" and
   "`// --- Section name ---` headers" are retired.
 - Parameter and return shapes are read from the function body and its tests.
-- The `/delete-comment` skill repeats the audit when comments arrive through
-  a baseline entry or a newly scanned file type.
+- Comments that arrive through a baseline entry or a newly scanned file type
+  get the same audit before deletion: decisions to an ADR, shortcuts to an
+  issue.

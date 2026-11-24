@@ -39,7 +39,7 @@ EphemeraService.qml is the **coordinator** that owns message state (`messagesMod
 - **Private properties** — prefix with `_` (e.g., `_streamContent`).
 - **JS libraries** — `.js` files in `src/lib/` are `.pragma library` pure-function modules. Import with namespace aliases (`as Providers`).
 - **State centralization** — shared conversation, variant, and provider state lives in EphemeraService.qml. Child services own bounded lifecycle/transport state and communicate outputs through signals and narrow facade properties.
-- **No comments** — source files carry none ([ADR 1](docs/adr/0001-ban-code-comments.md)). Record a decision in `docs/adr/`, file a shortcut as an issue, and put everything else in names and tests. `/delete-comment` repeats the audit.
+- **No comments** — source files carry none ([ADR 1](docs/adr/0001-ban-code-comments.md)). Record a decision in `docs/adr/`, file a shortcut as an issue, and put everything else in names and tests.
 - **Theme** — never hardcode colors/spacing/fonts. Use `Theme` singleton from `qs.Common`.
 - **UI signals** — extracted components communicate with parent via signals, not direct property writes.
 
