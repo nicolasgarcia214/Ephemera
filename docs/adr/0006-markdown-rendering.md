@@ -10,19 +10,7 @@ renders model output, which is untrusted, into Qt rich text.
 
 ## Decisions
 
-### Pipeline order in `markdownToHtml`
-
-1. Extract fenced code blocks and inline code into pre-escaped placeholders.
-2. Extract tables into pre-built HTML with escaped cells.
-3. Escape the remaining HTML entities.
-4. Extract link hrefs and plain-URL auto-links into placeholders.
-5. Transform headers, emphasis, lists, blockquotes, and rules.
-6. Wrap list and blockquote HTML in protected placeholders.
-7. Convert newlines to breaks and paragraphs.
-8. Restore placeholders: protected blocks first, code second.
-9. Remove redundant break and paragraph tags.
-
-The order carries these rules:
+### Ordering constraints in `markdownToHtml`
 
 - All text is HTML-escaped before inline formatting is applied. Code
   contents, code language labels, and table cells are escaped independently.
@@ -39,8 +27,9 @@ The order carries these rules:
 - Underscore emphasis is anchored to word boundaries, so `snake_case` stays
   literal.
 - Blockquotes match `&gt;`, because `>` is already escaped by that step.
-- Code placeholders are restored after protected blocks, so a placeholder
-  captured inside a list, blockquote, or table is still reached.
+- Placeholders are restored in the order protected blocks, code blocks,
+  inline code, links. Code and links come after protected blocks so a
+  placeholder captured inside a list, blockquote, or table is still reached.
 
 ### Rendering in `MessageBubble`
 

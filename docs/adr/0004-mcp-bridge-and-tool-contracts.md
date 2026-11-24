@@ -52,8 +52,6 @@ and results all come from parties Ephemera does not trust.
   its executable contract. `trustKey` binds approvals to one server.
   `pruneApprovedTools` drops approvals whose contract is no longer
   advertised.
-- `isToolError` treats `isError` in a successful JSON-RPC response as a
-  tool-level failure.
 - `formatReviewText` escapes invisible and bidirectional controls in any
   server- or model-provided text shown in an approval prompt.
 

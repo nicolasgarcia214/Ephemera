@@ -38,8 +38,6 @@ Status: accepted. Recorded 2026-11-24 from comments in `ChatPersistence.js`,
 
 ### Variants
 
-- The variant store is a plain object: message id to an array of
-  `{content, thinking, modelName, errorText?}`.
 - `saveVariant` evicts from the front once a message exceeds the cap. The
   caller must correct the displayed index with `adjustAfterEviction`, whose
   count includes a variant that is still streaming.

@@ -6,9 +6,9 @@ Status: accepted. Recorded 2026-11-24 from comments in `tests/`.
 
 ### Node unit tests (`run_tests.js`)
 
-- `.pragma library` modules target the QML JavaScript engine. `loadPragmaLib`
-  reads the source, strips the directive, evaluates it, and exports every
-  top-level function and `var`.
+- `.pragma library` modules target the QML JavaScript engine, so
+  `loadPragmaLib` evaluates their source in Node with the directive removed.
+  Issue #16 tracks the regex rewriting it does on the way.
 
 ### Headless QML tests (`run_qml_tests.sh`)
 
@@ -41,6 +41,7 @@ Status: accepted. Recorded 2026-11-24 from comments in `tests/`.
   synchronous signal does not re-enter `loadSettings` while persisted
   history is cleared. Its replacement launch uses the same coordinator path
   as a retry.
-- `OllamaLifecycleHarness` checks that an idle timeout during a stream, or
-  an MCP approval pause, re-arms. Expiring silently would leave the owned
-  server running forever.
+- `OllamaLifecycleHarness` checks that an idle timeout during a stream
+  re-arms. Expiring silently would leave the owned server running forever.
+  An MCP approval pause is covered only because it keeps `isStreaming`
+  true.

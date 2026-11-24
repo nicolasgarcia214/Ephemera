@@ -19,22 +19,24 @@ Status: accepted. Recorded 2026-11-24 from comments in `Providers.js`.
 
 ### Endpoint validation
 
-- `validateUrl` accepts http and https only, a valid hostname, at most 2048
-  characters, and rejects control characters, default-ignorable formatting
-  code points, and characters unsafe in URLs. The last rule prevents
-  injection through the path. An empty URL is absent, not invalid.
+- `validateUrl` accepts http and https only, at most 2048 characters, and
+  rejects control characters, default-ignorable formatting code points, and
+  characters unsafe in URLs. The last rule prevents injection through the
+  path. Hostname and port syntax are checked by `_validateSecureProviderUrl`.
+  An empty URL is invalid with an empty error message, so callers can treat
+  it as absent.
 - `validateCustomProviderUrl` allows HTTPS to any valid hostname. Plaintext
   HTTP is limited to the exact name `localhost` or an unambiguous
   dotted-decimal address in 127.0.0.0/8. Userinfo is never accepted, because
   curl would send it as credentials independently of the configured key.
-- `validateOllamaUrl` applies the same transport policy.
 - `isManagedLocalOllamaUrl` is true only for the default local HTTP
   identities that `ollama serve` uses. Every other valid endpoint is
   probe-only: Ephemera never starts or stops a server behind it.
 - `_isUnsafeFormattingCodePoint` covers the Unicode 17
-  `Default_Ignorable_Code_Point` ranges plus line separators, interlinear
-  annotation controls, and unpaired surrogates. Unpaired surrogates can
-  change when a JavaScript string is encoded for process argv.
+  `Default_Ignorable_Code_Point` ranges plus line separators and interlinear
+  annotation controls. `_containsUnsafeUnicodeFormatting` also rejects
+  unpaired surrogates, which can change when a JavaScript string is encoded
+  for process argv.
 - The Gemini model name is validated before it is placed in the URL path,
   because it is user-supplied free text and could traverse paths.
 

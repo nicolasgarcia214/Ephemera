@@ -3210,6 +3210,36 @@ section("Keyboard safety and empty-state honesty");
         ["# yes", "# after"],
         "finds shell comments outside quotes, expansions, and heredocs"
     );
+    assertDeepEqual(
+        found("a.js", "x = y\nreturn /\\/\\//.test(s)\nn = n++ / 2; re = /\\/\\//; t = `${/\\/\\//.test(s)}`; u = o.in / 2 // end"),
+        ["// end"],
+        "tells a regex literal from division after a line break, an increment, a template hole, and a property"
+    );
+    assertDeepEqual(
+        found("a.qml", "//@ pragma UseQApplication\n// qmllint is prose\n// x-release-please-note\nItem {}"),
+        ["// qmllint is prose", "// x-release-please-note"],
+        "exempts only complete directives, never a comment that borrows a directive prefix"
+    );
+    assertDeepEqual(
+        found("tool", "#!/bin/dash\nx=$((1<<2)) ${y:- # no}\ncat <<\\A <<-'B C'\n# no\nA\n\t# no\n\tB C\necho hi #! yes\n"),
+        ["#! yes"],
+        "reads shell arithmetic, expansions, and heredoc tags without losing later comments"
+    );
+    assertDeepEqual(
+        lint.check({ "a.js": 2, "b.js": 1 }, { "b.js": 3, "c.js": 1 }),
+        [
+            { file: "a.js", count: 2, allowed: 0 },
+            { file: "b.js", count: 1, allowed: 3 },
+            { file: "c.js", count: 0, allowed: 1 }
+        ],
+        "check fails a file above its baseline and a baseline looser than the file"
+    );
+    assertDeepEqual(
+        lint.tighten({ "a.js": 2, "b.js": 1, "d.js": 4 }, { "b.js": 3, "c.js": 1, "d.js": 4 }),
+        { "b.js": 1, "d.js": 4 },
+        "tighten lowers baselines and never raises or adds one"
+    );
+
     assertEqual(lint.commentsIn("a.md", "<!-- prose -->"), null, "leaves non-source files out of scope");
 
     var commented = "a {\n    // gone\n\n    b: 1 // gone\n\n    // gone\n\n    c: `\n\n\n`\n\n    // gone\n}\n";
