@@ -105,24 +105,6 @@ function _providerEnvelopeError(data, provider) {
     return _openAiEnvelopeError(data);
 }
 
-function splitLines(chunk, buffer) {
-    var combined = buffer + chunk;
-    var parts = combined.split(/\r?\n/);
-
-    var remaining = "";
-    if (combined.length > 0 && !combined.endsWith("\n") && !combined.endsWith("\r")) {
-        remaining = parts.pop();
-    }
-
-    var lines = [];
-    for (var i = 0; i < parts.length; i++) {
-        var line = parts[i].trim();
-        if (line) lines.push(line);
-    }
-
-    return { lines: lines, buffer: remaining };
-}
-
 function parseDelta(jsonText, provider) {
     var result = {
         content: "", thinking: "", done: false, outputTokens: 0,

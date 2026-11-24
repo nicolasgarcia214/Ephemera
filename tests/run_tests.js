@@ -109,40 +109,6 @@ section("Composer submission wiring");
         "rejected coordinator submissions are side-effect free");
 })();
 
-section("StreamParser.splitLines");
-(function() {
-    var r = StreamParser.splitLines("data: hello\ndata: world\n", "");
-    assertEqual(r.lines.length, 2, "splits two complete lines");
-    assertEqual(r.buffer, "", "no remaining buffer");
-
-    r = StreamParser.splitLines("data: partial", "");
-    assertEqual(r.lines.length, 0, "incomplete line stays in buffer");
-    assertEqual(r.buffer, "data: partial", "buffer contains partial line");
-
-    r = StreamParser.splitLines(" rest\n", "data:");
-    assertEqual(r.lines.length, 1, "combines buffer with new data");
-    assertEqual(r.lines[0], "data: rest", "correct combined line");
-
-    r = StreamParser.splitLines("data: [DONE]\n", "");
-    assertEqual(r.lines[0], "data: [DONE]", "handles [DONE] marker");
-
-    r = StreamParser.splitLines("", "");
-    assertEqual(r.lines.length, 0, "empty input produces no lines");
-    assertEqual(r.buffer, "", "empty input produces empty buffer");
-
-    r = StreamParser.splitLines("data: a\r\ndata: b\r\n", "");
-    assertEqual(r.lines.length, 2, "handles \\r\\n line endings");
-    assertEqual(r.lines[0], "data: a", "correct first line with CRLF");
-
-    r = StreamParser.splitLines("\n\n\n", "");
-    assertEqual(r.lines.length, 0, "blank lines are filtered");
-
-    r = StreamParser.splitLines("data: chunk1", "");
-    assertEqual(r.buffer, "data: chunk1", "no newline keeps data in buffer");
-    var r2 = StreamParser.splitLines(" chunk2\n", r.buffer);
-    assertEqual(r2.lines[0], "data: chunk1 chunk2", "multi-chunk assembly");
-})();
-
 section("StreamParser.parseDelta — OpenAI/Ollama");
 (function() {
     var json = JSON.stringify({

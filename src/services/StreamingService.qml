@@ -19,7 +19,6 @@ Item {
     property string activeStreamId: ""
     property string _activeProvider: ""
     property int _streamGeneration: 0
-    property string streamBuffer: ""
     property string pendingStdinBody: ""
     property var _pendingLaunch: null
     property string _fetchStreamId: ""
@@ -183,7 +182,6 @@ Item {
         _fetchGeneration = launch.generation;
         _fetchOutput = "";
         _fetchReceivedLength = 0;
-        streamBuffer = "";
         _insideThinkTag = false;
         _tagBuffer = "";
         _roundContent = "";
@@ -304,7 +302,6 @@ Item {
         _insideThinkTag = false;
         _tagBuffer = "";
         _clearToolState(true, "Stream reset.");
-        streamBuffer = "";
         pendingStdinBody = "";
         _pendingLaunch = null;
         _lastFinalizedStreamId = "";
@@ -343,85 +340,80 @@ Item {
             cancel();
     }
 
-    function handleStreamChunk(chunk) {
+    function handleStreamLine(rawLine) {
         if (!isStreaming)
             return;
-        var result = StreamParser.splitLines(chunk, streamBuffer);
-        streamBuffer = result.buffer;
+        var line = rawLine.trim();
+        if (!line)
+            return;
 
-        for (var i = 0; i < result.lines.length; i++) {
-            if (!isStreaming)
-                return;
-            var line = result.lines[i];
+        if (line === "data: [DONE]" || line === "data:[DONE]") {
+            _awaitingUsageCompletion = false;
+            return;
+        }
 
-            if (line === "data: [DONE]" || line === "data:[DONE]") {
+        var jsonPart;
+        if (line.startsWith("data:")) {
+            jsonPart = line.substring(5).trim();
+        } else if (line.startsWith("{")) {
+            jsonPart = line;
+        } else {
+            return;
+        }
+
+        var delta = StreamParser.parseDelta(jsonPart, _activeProvider);
+
+        if (delta.error) {
+            var failedStreamId = activeStreamId;
+            if (_markError(failedStreamId, delta.error))
+                chatFetcher.running = false;
+            return;
+        }
+
+        if (delta.usageReceived) {
+            _apiOutputTokens = delta.outputTokens;
+            _hasApiOutputTokens = true;
+            if (_awaitingUsageCompletion) {
                 _awaitingUsageCompletion = false;
-                continue;
             }
+        }
 
-            var jsonPart;
-            if (line.startsWith("data:")) {
-                jsonPart = line.substring(5).trim();
-            } else if (line.startsWith("{")) {
-                jsonPart = line;
-            } else {
-                continue;
-            }
-
-            var delta = StreamParser.parseDelta(jsonPart, _activeProvider);
-
-            if (delta.error) {
-                var failedStreamId = activeStreamId;
-                if (_markError(failedStreamId, delta.error))
-                    chatFetcher.running = false;
+        if (delta.toolCalls && delta.toolCalls.length > 0) {
+            if (_allToolCalls.length + delta.toolCalls.length > _maxToolCallsPerRound) {
+                chatFetcher.running = false;
+                _markError(activeStreamId, "MCP tool call limit exceeded for one model turn.");
                 return;
             }
-
-            if (delta.usageReceived) {
-                _apiOutputTokens = delta.outputTokens;
-                _hasApiOutputTokens = true;
-                if (_awaitingUsageCompletion) {
+            _seenToolCalls = true;
+            for (var tci = 0; tci < delta.toolCalls.length; tci++) {
+                _pendingToolCalls.push(delta.toolCalls[tci]);
+                _allToolCalls.push(delta.toolCalls[tci]);
+            }
+        }
+        if (delta.thinking) {
+            streamTokenCount++;
+            _applyModelThinkingDelta(activeStreamId, delta.thinking);
+        }
+        if (delta.content) {
+            streamTokenCount++;
+            if (!Providers.getProviderInfo(_activeProvider).hasNativeThinking) {
+                var tagResult = StreamParser.routeThinkTags(delta.content, _tagBuffer, _insideThinkTag);
+                _tagBuffer = tagResult.tagBuffer;
+                _insideThinkTag = tagResult.insideThinkTag;
+                for (var ti = 0; ti < tagResult.thinkingParts.length; ti++)
+                    _applyModelThinkingDelta(activeStreamId, tagResult.thinkingParts[ti]);
+                for (var ci = 0; ci < tagResult.contentParts.length; ci++)
+                    _applyModelContentDelta(activeStreamId, tagResult.contentParts[ci]);
+            } else {
+                _applyModelContentDelta(activeStreamId, delta.content);
+            }
+        }
+        if (delta.done) {
+            if (_pendingToolCalls.length === 0) {
+                if (delta.openAiCompatible && !delta.usageReceived)
+                    _awaitingUsageCompletion = true;
+                else
                     _awaitingUsageCompletion = false;
-                }
-            }
-
-            if (delta.toolCalls && delta.toolCalls.length > 0) {
-                if (_allToolCalls.length + delta.toolCalls.length > _maxToolCallsPerRound) {
-                    chatFetcher.running = false;
-                    _markError(activeStreamId, "MCP tool call limit exceeded for one model turn.");
-                    return;
-                }
-                _seenToolCalls = true;
-                for (var tci = 0; tci < delta.toolCalls.length; tci++) {
-                    _pendingToolCalls.push(delta.toolCalls[tci]);
-                    _allToolCalls.push(delta.toolCalls[tci]);
-                }
-            }
-            if (delta.thinking) {
-                streamTokenCount++;
-                _applyModelThinkingDelta(activeStreamId, delta.thinking);
-            }
-            if (delta.content) {
-                streamTokenCount++;
-                if (!Providers.getProviderInfo(_activeProvider).hasNativeThinking) {
-                    var tagResult = StreamParser.routeThinkTags(delta.content, _tagBuffer, _insideThinkTag);
-                    _tagBuffer = tagResult.tagBuffer;
-                    _insideThinkTag = tagResult.insideThinkTag;
-                    for (var ti = 0; ti < tagResult.thinkingParts.length; ti++)
-                        _applyModelThinkingDelta(activeStreamId, tagResult.thinkingParts[ti]);
-                    for (var ci = 0; ci < tagResult.contentParts.length; ci++)
-                        _applyModelContentDelta(activeStreamId, tagResult.contentParts[ci]);
-                } else {
-                    _applyModelContentDelta(activeStreamId, delta.content);
-                }
-            }
-            if (delta.done) {
-                if (_pendingToolCalls.length === 0) {
-                    if (delta.openAiCompatible && !delta.usageReceived)
-                        _awaitingUsageCompletion = true;
-                    else
-                        _awaitingUsageCompletion = false;
-                }
             }
         }
     }
@@ -800,9 +792,8 @@ Item {
     }
 
     function _handleFetchLine(data) {
-        var chunk = data + "\n";
         var fetchIsActive = _fetchMatchesActiveStream();
-        _fetchReceivedLength += chunk.length;
+        _fetchReceivedLength += data.length + 1;
         if (_fetchReceivedLength > _maxFetchOutputLength) {
             chatFetcher.running = false;
             if (fetchIsActive)
@@ -812,9 +803,9 @@ Item {
         }
         if (!fetchIsActive && !_fetchMatchesFinalizedStream())
             return;
-        _fetchOutput += chunk;
+        _fetchOutput += data + "\n";
         if (fetchIsActive)
-            handleStreamChunk(chunk);
+            handleStreamLine(data);
     }
 
     Process {
