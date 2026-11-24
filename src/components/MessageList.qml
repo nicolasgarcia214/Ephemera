@@ -5,7 +5,7 @@ import qs.Common
 Item {
     id: root
     clip: true
-    property var messages: null
+    property ListModel messages
     property bool stickToBottom: true
     property string modelName: "Assistant"
     property bool expanded: false
