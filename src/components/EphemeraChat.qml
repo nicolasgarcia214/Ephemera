@@ -480,7 +480,9 @@ Item {
 
     Rectangle {
         anchors.fill: parent
-        color: Theme.withAlpha(Theme.onSurface, 0.4)
+        anchors.margins: -Theme.spacingL
+        radius: Theme.cornerRadius
+        color: Theme.withAlpha(Theme.scrimColor, Theme.scrimAlpha)
         visible: clearConfirmDialog.visible
         z: 99
     }

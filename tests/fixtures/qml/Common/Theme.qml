@@ -19,9 +19,13 @@ QtObject {
     readonly property color tertiary: "#f0abfc"
     readonly property color _onPrimary: "#101010"
     readonly property color _onSurface: "#f5f5f5"
+    readonly property color _onError: "#690005"
     readonly property alias onPrimary: root._onPrimary
     readonly property alias onSurface: root._onSurface
+    readonly property alias onError: root._onError
     readonly property color error: "#ff8a80"
+    readonly property color scrimColor: "#000000"
+    readonly property real scrimAlpha: 0.55
     readonly property color success: "#75d69c"
     readonly property color outline: "#808080"
     readonly property color outlineMedium: "#666666"

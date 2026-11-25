@@ -3250,10 +3250,10 @@ section("Keyboard safety and empty-state honesty");
     var chatSource = read("src/components/EphemeraChat.qml");
 
     assert(
-        dialogSource.indexOf("onOpened: cancelBtn.forceActiveFocus()") >= 0
-            && /id: cancelBtn\s+text: "Cancel"\s+focus: true/.test(dialogSource)
-            && !/id: clearConfirmBtn[\s\S]*?focus: true/.test(dialogSource),
-        "clear dialog defaults focus to Cancel, so Ctrl+L then Enter keeps the chat"
+        dialogSource.indexOf("onOpened: clearConfirmBtn.forceActiveFocus()") >= 0
+            && /id: clearConfirmBtn\s+text: "Clear"\s+focus: true/.test(dialogSource)
+            && !/id: cancelBtn[^}]*focus: true/.test(dialogSource),
+        "clear dialog defaults focus to Clear, so Enter confirms the primary action"
     );
     assert(
         /event\.key === Qt\.Key_Escape\) \{\s+if \(aiService\.isStreaming\)\s+aiService\.cancel\(\);\s+else\s+root\.hideRequested\(\);/

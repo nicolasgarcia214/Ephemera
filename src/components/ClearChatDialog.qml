@@ -13,7 +13,7 @@ Popup {
     padding: Theme.spacingL
     modal: true
     dim: false
-    onOpened: cancelBtn.forceActiveFocus()
+    onOpened: clearConfirmBtn.forceActiveFocus()
 
     background: Rectangle {
         color: Theme.surfaceContainerHighest
@@ -60,7 +60,10 @@ Popup {
             DankButton {
                 id: cancelBtn
                 text: "Cancel"
-                focus: true
+                backgroundColor: "transparent"
+                textColor: Theme.surfaceText
+                border.color: Theme.outlineButton
+                border.width: 1
                 Keys.onReturnPressed: clicked()
                 Keys.onEnterPressed: clicked()
                 onClicked: root.close()
@@ -69,8 +72,9 @@ Popup {
             DankButton {
                 id: clearConfirmBtn
                 text: "Clear"
+                focus: true
                 backgroundColor: Theme.error
-                textColor: Theme.onPrimary
+                textColor: Theme.onError
                 Keys.onReturnPressed: clicked()
                 Keys.onEnterPressed: clicked()
                 onClicked: {
