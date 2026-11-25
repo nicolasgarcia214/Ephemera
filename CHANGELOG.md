@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.3.1](https://github.com/nicolasgarcia214/Ephemera/compare/v1.3.0...v1.3.1) (2026-11-25)
+
+
+### Bug Fixes
+
+* **chat:** 🐛 restore clear dialog scrim, default, and button hierarchy ([ce36aa0](https://github.com/nicolasgarcia214/Ephemera/commit/ce36aa09eb00f0770a620b214f13950a25e7cb77))
+* **export:** 🐛 publish file exports with ln -T ([#22](https://github.com/nicolasgarcia214/Ephemera/issues/22)) ([693248b](https://github.com/nicolasgarcia214/Ephemera/commit/693248b94032bcaf016f95c03a42c20ebe10d2c3)), closes [#21](https://github.com/nicolasgarcia214/Ephemera/issues/21)
+* **persistence:** 🐛 migrate legacy error messages on load ([#24](https://github.com/nicolasgarcia214/Ephemera/issues/24)) ([f9f4509](https://github.com/nicolasgarcia214/Ephemera/commit/f9f4509a7ecebf6b829757b7456d15053c079adf)), closes [#17](https://github.com/nicolasgarcia214/Ephemera/issues/17)
+
+
+### Refactoring
+
+* **lib:** ♻️ share one unsafe code point predicate ([#28](https://github.com/nicolasgarcia214/Ephemera/issues/28)) ([2dc3578](https://github.com/nicolasgarcia214/Ephemera/commit/2dc3578da2c3d0246dde118d82ffc98e83815268)), closes [#15](https://github.com/nicolasgarcia214/Ephemera/issues/15)
+* **message-list:** ♻️ type messages as ListModel ([#26](https://github.com/nicolasgarcia214/Ephemera/issues/26)) ([b001400](https://github.com/nicolasgarcia214/Ephemera/commit/b00140067fb50281124b3a9996b8adb12ae92f2f)), closes [#19](https://github.com/nicolasgarcia214/Ephemera/issues/19)
+* **streaming:** ♻️ parse SplitParser lines directly in StreamingService ([#27](https://github.com/nicolasgarcia214/Ephemera/issues/27)) ([18a6d37](https://github.com/nicolasgarcia214/Ephemera/commit/18a6d37593ee81dbdb19827cbe208c724bc1be0a)), closes [#18](https://github.com/nicolasgarcia214/Ephemera/issues/18)
+
 ## [1.3.0](https://github.com/nicolasgarcia214/Ephemera/compare/v1.2.1...v1.3.0) (2026-11-24)
 
 
