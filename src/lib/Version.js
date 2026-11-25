@@ -1,3 +1,3 @@
 .pragma library
 
-var current = "1.3.0"; // x-release-please-version
+var current = "1.3.1"; // x-release-please-version
